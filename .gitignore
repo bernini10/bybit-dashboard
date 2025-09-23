@@ -1,0 +1,10 @@
+# Arquivos de ambiente Python
+__pycache__/
+*.pyc
+.env
+
+# Arquivos CSV gerados localmente
+*.csv
+
+# Arquivos do sistema operacional
+.DS_Store
