@@ -10,11 +10,11 @@ COPY requirements.txt .
 # Instalar as dependências
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar TODOS os outros arquivos e pastas (incluindo a pasta 'templates') para o WORKDIR
-COPY . .
+# Copiar o código da aplicação
+COPY app.py .
 
 # Expor a porta que o Gunicorn irá usar
 EXPOSE 5000
 
-# Comando para rodar a aplicação em produção usando Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+# Comando para rodar a aplicação com um timeout maior (300 segundos)
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "300", "app:app"]

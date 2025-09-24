@@ -1,17 +1,14 @@
 import pandas as pd
 from collections import defaultdict
 from flask import Flask, render_template_string, request, redirect, url_for, flash
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import time
 from pybit.unified_trading import HTTP
 import logging
-
-# Configura o logging
-logging.basicConfig(level=logging.INFO)
+import os
 
 # --- HTML TEMPLATES ---
 
-# Template para a página inicial com o formulário
 HTML_FORM_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -43,6 +40,9 @@ HTML_FORM_TEMPLATE = """
             {% endif %}
         {% endwith %}
         <form action="/analyze" method="post">
+            <label for="account_name">Nome da Conta (Opcional):</label>
+            <input type="text" id="account_name" name="account_name" placeholder="Ex: Bot Principal">
+
             <label for="api_key">API Key:</label>
             <input type="password" id="api_key" name="api_key" required>
             
@@ -62,7 +62,6 @@ HTML_FORM_TEMPLATE = """
 </html>
 """
 
-# Template para a página de resultados (dashboard)
 HTML_RESULTS_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -75,6 +74,7 @@ HTML_RESULTS_TEMPLATE = """
         .container { max-width: 1200px; margin: auto; }
         h1, h2 { color: #00aaff; border-bottom: 2px solid #00aaff; padding-bottom: 10px; }
         a { color: #00aaff; text-decoration: none; }
+        .header-info { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
         .kpi-container { display: flex; justify-content: space-around; flex-wrap: wrap; gap: 20px; margin-bottom: 40px; }
         .kpi-card { background-color: #1e1e1e; border-radius: 8px; padding: 20px; text-align: center; flex-grow: 1; border: 1px solid #333; }
         .kpi-card h3 { margin-top: 0; font-size: 1.2em; color: #bbb; }
@@ -92,9 +92,11 @@ HTML_RESULTS_TEMPLATE = """
 </head>
 <body>
     <div class="container">
-        <h1>Dashboard de Análise de Trades</h1>
-        <p><a href="/">&larr; Voltar para nova análise</a></p>
-        <p>Período analisado: {{ start_date }} a {{ end_date }}</p>
+        <div class="header-info">
+            <h1>Dashboard de Análise</h1>
+            <p><a href="/">&larr; Voltar para nova análise</a></p>
+        </div>
+        <p><strong>Conta:</strong> {{ account_name }} | <strong>Período:</strong> {{ start_date }} a {{ end_date }}</p>
 
         <div class="kpi-container">
             <div class="kpi-card">
@@ -170,64 +172,72 @@ HTML_RESULTS_TEMPLATE = """
 
 # --- LÓGICA DA APLICAÇÃO ---
 app = Flask(__name__)
-app.secret_key = 'uma-chave-secreta-muito-forte' # Necessário para usar 'flash'
-
-# Variável global para armazenar os dados em cache
-analysis_cache = {}
+app.secret_key = os.environ.get('SECRET_KEY', 'uma-chave-secreta-muito-forte-para-dev-local')
+logging.basicConfig(level=logging.INFO)
 
 def fetch_bybit_data(api_key, api_secret, start_date_str, end_date_str):
-    """Busca dados da Bybit usando a API."""
+    """Busca dados da Bybit, lidando com paginação e o limite de 7 dias."""
     try:
         session = HTTP(api_key=api_key, api_secret=api_secret)
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-        start_timestamp = int(start_date.replace(tzinfo=timezone.utc).timestamp() * 1000)
-        end_timestamp = int(end_date.replace(tzinfo=timezone.utc).timestamp() * 1000)
     except Exception as e:
-        logging.error(f"Erro ao inicializar sessão ou datas: {e}")
+        logging.error(f"Erro nas credenciais ou formato de data: {e}")
         return None, f"Erro nas credenciais ou formato de data: {e}"
 
     all_executions = []
-    cursor = ""
-    category = "linear" # Foco em futuros lineares
-
-    while True:
-        try:
-            response = session.get_executions(
-                category=category,
-                startTime=start_timestamp,
-                endTime=end_timestamp,
-                limit=100,
-                cursor=cursor,
-            )
-            if response['retCode'] == 0:
-                executions = response['result']['list']
-                all_executions.extend(executions)
-                cursor = response['result'].get('nextPageCursor', "")
-                if not cursor:
-                    break
-                time.sleep(0.2) # Respeitar rate limit
-            else:
-                logging.error(f"Erro da API Bybit: {response['retMsg']}")
-                return None, f"Erro da API Bybit: {response['retMsg']}"
-        except Exception as e:
-            logging.error(f"Exceção ao buscar dados da Bybit: {e}")
-            return None, f"Exceção ao buscar dados: {e}"
+    current_start_dt = start_date
     
+    while current_start_dt < end_date:
+        current_end_dt = min(current_start_dt + timedelta(days=7), end_date)
+        start_ts = int(current_start_dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
+        end_ts = int(current_end_dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
+        
+        logging.info(f"Buscando dados de {current_start_dt.date()} a {current_end_dt.date()}...")
+        
+        cursor = ""
+        while True:
+            try:
+                response = session.get_executions(
+                    category="linear", startTime=start_ts, endTime=end_ts, limit=100, cursor=cursor
+                )
+                if response['retCode'] == 0:
+                    executions = response['result']['list']
+                    all_executions.extend(executions)
+                    cursor = response['result'].get('nextPageCursor', "")
+                    if not cursor: break
+                    time.sleep(0.2)
+                else:
+                    msg = f"Erro da API Bybit ao buscar trades: {response['retMsg']} (ErrCode: {response['retCode']})"
+                    logging.error(msg)
+                    return None, msg
+            except Exception as e:
+                msg = f"Exceção ao buscar trades: {e}"
+                logging.error(msg)
+                return None, msg
+        
+        current_start_dt += timedelta(days=7)
+
     return pd.DataFrame(all_executions), None
 
 def analyze_data(df):
     """Processa o DataFrame de execuções e calcula PnL/ROI."""
-    # (Esta função é a mesma lógica de análise que já tínhamos)
+    if df.empty:
+        return pd.DataFrame()
+        
     trades_df = df[df['execType'] == 'Trade'].copy()
-    if trades_df.empty: return pd.DataFrame()
+    if trades_df.empty: 
+        return pd.DataFrame()
     
-    # Conversões e limpeza
     numeric_cols = ['execQty', 'execPrice', 'execValue', 'execFee']
     for col in numeric_cols:
         trades_df[col] = pd.to_numeric(trades_df[col], errors='coerce')
     trades_df.dropna(subset=numeric_cols, inplace=True)
+    
+    trades_df['execTime'] = pd.to_numeric(trades_df['execTime'], errors='coerce')
+    trades_df.dropna(subset=['execTime'], inplace=True)
     trades_df['execTime'] = pd.to_datetime(trades_df['execTime'], unit='ms')
+    
     trades_df = trades_df.sort_values(by='execTime').reset_index(drop=True)
 
     open_positions = defaultdict(lambda: {'qty': 0.0, 'cost': 0.0, 'fees': 0.0, 'entry_time': None})
@@ -238,9 +248,11 @@ def analyze_data(df):
             symbol, side, qty, price, fee = row['symbol'], row['side'], row['execQty'], row['execPrice'], row['execFee']
             position = open_positions[symbol]
             signed_qty = qty if side == 'Buy' else -qty
-            is_opening = position['qty'] == 0 or (position['qty'] > 0 and side == 'Buy') or (position['qty'] < 0 and side == 'Sell')
-
-            if is_opening:
+            
+            is_closing = (position['qty'] > 0 and side == 'Sell') or \
+                         (position['qty'] < 0 and side == 'Buy')
+            
+            if not is_closing:
                 if position['qty'] == 0: position['entry_time'] = row['execTime']
                 position['cost'] += signed_qty * price
                 position['qty'] += signed_qty
@@ -248,13 +260,19 @@ def analyze_data(df):
             else:
                 close_qty = min(abs(position['qty']), qty)
                 if close_qty == 0: continue
+                
                 avg_entry_price = position['cost'] / position['qty']
                 entry_cost_closed = abs(avg_entry_price * close_qty)
+                
                 pnl_gross = (price - abs(avg_entry_price)) * close_qty if position['qty'] > 0 else (abs(avg_entry_price) - price) * close_qty
+                
                 entry_fees_closed = (position['fees'] / abs(position['qty'])) * close_qty if abs(position['qty']) > 0 else 0
                 pnl_net = pnl_gross - (entry_fees_closed + fee)
                 roi = (pnl_net / entry_cost_closed) * 100 if entry_cost_closed > 0 else 0
-                exit_type = row['stopOrderType'] if pd.notna(row['stopOrderType']) and row['stopOrderType'] not in ['UNKNOWN', ''] else row['createType']
+                
+                exit_type = row.get('stopOrderType')
+                if pd.isna(exit_type) or exit_type in ['UNKNOWN', '']:
+                    exit_type = row.get('createType', 'Manual')
 
                 closed_trades.append({
                     'symbol': symbol, 'position_side': 'Long' if position['qty'] > 0 else 'Short',
@@ -266,9 +284,12 @@ def analyze_data(df):
                 position['qty'] += signed_qty
                 position['cost'] = position['qty'] * avg_entry_price
                 position['fees'] -= entry_fees_closed
-                if abs(position['qty']) < 1e-9: open_positions.pop(symbol, None)
-        except Exception as e:
-            logging.error(f"Erro ao processar trade: {e}")
+                
+                if abs(position['qty']) < 1e-9:
+                    open_positions.pop(symbol, None)
+
+        except (ZeroDivisionError, TypeError, KeyError) as e:
+            logging.error(f"Erro ao processar trade para o símbolo {row.get('symbol', 'N/A')}: {e}")
             continue
             
     return pd.DataFrame(closed_trades)
@@ -285,8 +306,8 @@ def analyze():
     api_secret = request.form['api_secret']
     start_date = request.form['start_date']
     end_date = request.form['end_date']
+    account_name = request.form.get('account_name') or "Não especificado"
 
-    # Busca os dados da Bybit
     raw_data_df, error_message = fetch_bybit_data(api_key, api_secret, start_date, end_date)
     
     if error_message:
@@ -297,17 +318,15 @@ def analyze():
         flash('Nenhum trade encontrado para o período e credenciais informados.', 'error')
         return redirect(url_for('index'))
 
-    # Analisa os dados coletados
     analysis_df = analyze_data(raw_data_df)
     
     if analysis_df.empty:
         flash('Nenhuma operação completa (abertura e fechamento) foi encontrada nos dados coletados.', 'error')
         return redirect(url_for('index'))
 
-    # Prepara os dados para o template
     total_pnl = analysis_df['pnl_net'].sum()
-    win_rate = (analysis_df['pnl_net'] > 0).mean() * 100
-    avg_roi = analysis_df['roi_%'].mean()
+    win_rate = (analysis_df['pnl_net'] > 0).mean() * 100 if not analysis_df.empty else 0
+    avg_roi = analysis_df['roi_%'].mean() if not analysis_df.empty else 0
     summary = {'total_pnl': total_pnl, 'win_rate': win_rate, 'avg_roi': avg_roi}
 
     symbol_summary = analysis_df.groupby('symbol').agg(
@@ -325,7 +344,8 @@ def analyze():
 
     return render_template_string(HTML_RESULTS_TEMPLATE,
                                   summary=summary, winners=winners_df, losers=losers_df,
-                                  exit_summary=exit_type_summary, start_date=start_date, end_date=end_date)
+                                  exit_summary=exit_type_summary, start_date=start_date, end_date=end_date,
+                                  account_name=account_name)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5001, debug=True)
