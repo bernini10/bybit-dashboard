@@ -2,3 +2,4 @@ pybit
 pandas
 flask
 gunicorn
+Flask-Session

@@ -1,43 +1,51 @@
-from flask import Flask, render_template, request, flash
+from flask import Flask, render_template, request, flash, session, redirect, url_for
+from flask_session import Session  # Importa a nova biblioteca
 import os
 import logging
+import pandas as pd
 
 # Importa as funções que separamos
 from bybit_client import fetch_bybit_data
 from analysis import analyze_data
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'uma-chave-secreta-muito-forte-para-dev-local')
+# Configuração da Sessão no Lado do Servidor
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_TYPE"] = "filesystem" # Salva as sessões em arquivos no servidor
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'uma-chave-secreta-muito-forte-para-dev-local')
+Session(app) # Inicializa a extensão
+
 logging.basicConfig(level=logging.INFO)
 
 @app.route('/', methods=['GET', 'POST'])
 def dashboard():
-    # Se a página for carregada via POST (formulário enviado)
     if request.method == 'POST':
-        form_data = request.form
-        api_key = form_data.get('api_key')
-        api_secret = form_data.get('api_secret')
-        start_date = form_data.get('start_date')
-        end_date = form_data.get('end_date')
-        account_name = form_data.get('account_name') or "Não especificado"
+        session['form_data'] = request.form
+        
+        api_key = request.form.get('api_key')
+        api_secret = request.form.get('api_secret')
+        start_date = request.form.get('start_date')
+        end_date = request.form.get('end_date')
+        account_name = request.form.get('account_name') or "Não especificado"
 
         raw_data_df, error_message = fetch_bybit_data(api_key, api_secret, start_date, end_date)
         
         if error_message:
             flash(error_message, 'error')
-            return render_template('dashboard.html', analysis_done=False, form_data=form_data)
+            return render_template('dashboard.html', analysis_done=False, form_data=session.get('form_data', {}))
         
         if raw_data_df.empty:
             flash('Nenhum trade encontrado para o período e credenciais informados.', 'error')
-            return render_template('dashboard.html', analysis_done=False, form_data=form_data)
+            return render_template('dashboard.html', analysis_done=False, form_data=session.get('form_data', {}))
 
         analysis_df = analyze_data(raw_data_df)
         
         if analysis_df.empty:
             flash('Nenhuma operação completa (abertura e fechamento) foi encontrada nos dados.', 'error')
-            return render_template('dashboard.html', analysis_done=False, form_data=form_data)
+            return render_template('dashboard.html', analysis_done=False, form_data=session.get('form_data', {}))
 
-        # Preparar os dados para o template
+        session['analysis_df'] = analysis_df.to_json(orient='split', date_format='iso')
+
         total_pnl = analysis_df['pnl_net'].sum()
         win_rate = (analysis_df['pnl_net'] > 0).mean() * 100 if not analysis_df.empty else 0
         avg_roi = analysis_df['roi_%'].mean() if not analysis_df.empty else 0
@@ -65,10 +73,36 @@ def dashboard():
                                start_date=start_date,
                                end_date=end_date,
                                account_name=account_name,
-                               form_data=form_data)
+                               form_data=session.get('form_data', {}))
 
-    # Se a página for carregada via GET (primeiro acesso)
+    session.clear() # Limpa toda a sessão em um novo acesso
     return render_template('dashboard.html', analysis_done=False, form_data={})
 
+@app.route('/trades/<symbol>')
+def trade_details(symbol):
+    analysis_json = session.get('analysis_df')
+    if not analysis_json:
+        flash('Sessão expirada ou dados não encontrados. Por favor, faça uma nova análise.', 'error')
+        return redirect(url_for('dashboard'))
+
+    analysis_df = pd.read_json(analysis_json, orient='split')
+    
+    analysis_df['entry_time'] = pd.to_datetime(analysis_df['entry_time'])
+    analysis_df['exit_time'] = pd.to_datetime(analysis_df['exit_time'])
+
+    symbol_trades = analysis_df[analysis_df['symbol'] == symbol].copy()
+    
+    if symbol_trades.empty:
+        flash(f'Nenhum trade encontrado para o símbolo {symbol}.', 'error')
+        return redirect(url_for('dashboard'))
+
+    symbol_trades['duration'] = symbol_trades['exit_time'] - symbol_trades['entry_time']
+    symbol_trades['duration'] = symbol_trades['duration'].apply(lambda x: str(x).split('.')[0])
+    
+    symbol_trades.rename(columns={'roi_%': 'roi'}, inplace=True)
+    trades_list = symbol_trades.to_dict('records')
+
+    return render_template('trades_detail.html', trades=trades_list, symbol=symbol)
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True) # Mantendo a porta 5001 para seu ambiente local
+    app.run(host='0.0.0.0', port=5001, debug=True)

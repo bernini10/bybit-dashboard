@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detalhes dos Trades - {{ symbol }}</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: auto; }
+        h1 { color: #00aaff; }
+        a { color: #00aaff; text-decoration: none; }
+        .table-wrapper { background-color: #1e1e1e; padding: 20px; border-radius: 8px; border: 1px solid #333; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; border-bottom: 1px solid #333; text-align: left; font-size: 0.9em; white-space: nowrap; }
+        th { color: #00aaff; }
+        td.positive { color: #28a745; font-weight: bold; }
+        td.negative { color: #dc3545; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Detalhes dos Trades para: {{ symbol }}</h1>
+        <p><a href="/">&larr; Voltar para o Dashboard Principal</a></p>
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Lado</th>
+                        <th>Início da Operação</th>
+                        <th>Fim da Operação</th>
+                        <th>Duração</th>
+                        <th>Quantidade</th>
+                        <th>Preço Médio Entrada</th>
+                        <th>Preço Saída</th>
+                        <th>PnL (USDT)</th>
+                        <th>ROI (%)</th>
+                        <th>Tipo de Saída</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for trade in trades %}
+                    <tr>
+                        <td>{{ trade.position_side }}</td>
+                        <td>{{ trade.entry_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>{{ trade.exit_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>{{ trade.duration }}</td>
+                        <td>{{ trade.quantity }}</td>
+                        <td>{{ "%.4f"|format(trade.avg_entry_price) }}</td>
+                        <td>{{ "%.4f"|format(trade.exit_price) }}</td>
+                        <td class="{{ 'positive' if trade.pnl_net > 0 else 'negative' }}">{{ "%.4f"|format(trade.pnl_net) }}</td>
+                        <td class="{{ 'positive' if trade.roi > 0 else 'negative' }}">{{ "%.2f"|format(trade.roi) }}</td>
+                        <td>{{ trade.exit_type }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

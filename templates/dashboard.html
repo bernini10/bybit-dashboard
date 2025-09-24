@@ -27,6 +27,8 @@
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { padding: 10px; border-bottom: 1px solid #333; text-align: left; font-size: 0.9em; }
         th { color: #00aaff; }
+        a { color: #00aaff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
         td.positive { color: #28a745; font-weight: bold; }
         td.negative { color: #dc3545; font-weight: bold; }
     </style>
@@ -96,7 +98,8 @@
                         <tbody>
                             {% for _, row in winners.iterrows() %}
                             <tr>
-                                <td>{{ row['Par'] }}</td>
+                                <!-- AJUSTE AQUI: Adiciona o link -->
+                                <td><a href="{{ url_for('trade_details', symbol=row['Par']) }}" target="_blank">{{ row['Par'] }}</a></td>
                                 <td class="positive">{{ "%.2f"|format(row['PnL Total (USDT)']) }}</td>
                                 <td class="positive">{{ "%.2f"|format(row['ROI Total (%)']) }}</td>
                                 <td>{{ row['Nº de Trades'] }}</td>
@@ -112,7 +115,8 @@
                         <tbody>
                             {% for _, row in losers.iterrows() %}
                             <tr>
-                                <td>{{ row['Par'] }}</td>
+                                <!-- AJUSTE AQUI: Adiciona o link -->
+                                <td><a href="{{ url_for('trade_details', symbol=row['Par']) }}" target="_blank">{{ row['Par'] }}</a></td>
                                 <td class="negative">{{ "%.2f"|format(row['PnL Total (USDT)']) }}</td>
                                 <td class="negative">{{ "%.2f"|format(row['ROI Total (%)']) }}</td>
                                 <td>{{ row['Nº de Trades'] }}</td>
