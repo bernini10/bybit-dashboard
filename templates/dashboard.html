@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Trades Bybit</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; }
+        h1, h2 { color: #00aaff; border-bottom: 2px solid #00aaff; padding-bottom: 10px; }
+        .form-section { background-color: #1e1e1e; padding: 20px 30px; border-radius: 8px; border: 1px solid #333; margin-bottom: 30px; }
+        form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px 20px; align-items: end; }
+        label { font-weight: bold; color: #bbb; display: block; margin-bottom: 5px; }
+        input[type="text"], input[type="password"], input[type="date"] { width: 100%; box-sizing: border-box; background-color: #333; border: 1px solid #555; color: #e0e0e0; padding: 10px; border-radius: 4px; font-size: 1em; }
+        button { grid-column: 1 / -1; background-color: #00aaff; color: #121212; padding: 12px; border: none; border-radius: 4px; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: background-color 0.3s; }
+        button:hover { background-color: #0088cc; }
+        .flash-message { padding: 15px; margin-bottom: 20px; border-radius: 4px; text-align: center; }
+        .flash-error { background-color: #dc3545; color: white; }
+        .kpi-container { display: flex; justify-content: space-around; flex-wrap: wrap; gap: 20px; margin-bottom: 40px; }
+        .kpi-card { background-color: #1e1e1e; border-radius: 8px; padding: 20px; text-align: center; flex-grow: 1; border: 1px solid #333; }
+        .kpi-card h3 { margin-top: 0; font-size: 1.2em; color: #bbb; }
+        .kpi-value { font-size: 2.5em; font-weight: bold; }
+        .positive { color: #28a745; }
+        .negative { color: #dc3545; }
+        .content-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 30px; margin-top: 20px; }
+        .table-wrapper { background-color: #1e1e1e; padding: 20px; border-radius: 8px; border: 1px solid #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; border-bottom: 1px solid #333; text-align: left; font-size: 0.9em; }
+        th { color: #00aaff; }
+        td.positive { color: #28a745; font-weight: bold; }
+        td.negative { color: #dc3545; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Dashboard de Análise Bybit</h1>
+
+        <div class="form-section">
+            <h2>Nova Análise</h2>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash-message flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            <form action="/" method="post">
+                <div>
+                    <label for="account_name">Nome da Conta:</label>
+                    <input type="text" id="account_name" name="account_name" placeholder="Ex: Bot Principal" value="{{ form_data.account_name or '' }}">
+                </div>
+                <div>
+                    <label for="api_key">API Key:</label>
+                    <input type="password" id="api_key" name="api_key" value="{{ form_data.api_key or '' }}" required>
+                </div>
+                <div>
+                    <label for="api_secret">API Secret:</label>
+                    <input type="password" id="api_secret" name="api_secret" value="{{ form_data.api_secret or '' }}" required>
+                </div>
+                <div>
+                    <label for="start_date">Data de Início:</label>
+                    <input type="date" id="start_date" name="start_date" value="{{ form_data.start_date or '' }}" required>
+                </div>
+                <div>
+                    <label for="end_date">Data de Fim:</label>
+                    <input type="date" id="end_date" name="end_date" value="{{ form_data.end_date or '' }}" required>
+                </div>
+                <button type="submit">Analisar Trades</button>
+            </form>
+        </div>
+
+        {% if analysis_done %}
+        <div class="results-section">
+            <p><strong>Resultados para a Conta:</strong> {{ account_name }} | <strong>Período:</strong> {{ start_date }} a {{ end_date }}</p>
+
+            <div class="kpi-container">
+                <div class="kpi-card">
+                    <h3>PnL Líquido Total</h3>
+                    <p class="kpi-value {{ 'positive' if summary.total_pnl > 0 else 'negative' }}">{{ "%.2f"|format(summary.total_pnl) }} USDT</p>
+                </div>
+                <div class="kpi-card">
+                    <h3>Taxa de Acerto</h3>
+                    <p class="kpi-value">{{ "%.2f"|format(summary.win_rate) }}%</p>
+                </div>
+                <div class="kpi-card">
+                    <h3>ROI Médio Total</h3>
+                    <p class="kpi-value {{ 'positive' if summary.avg_roi > 0 else 'negative' }}">{{ "%.2f"|format(summary.avg_roi) }}%</p>
+                </div>
+            </div>
+
+            <div class="content-grid">
+                <div class="table-wrapper">
+                    <h2>🏆 Ranking de Ganhadores</h2>
+                    <table>
+                        <thead><tr>{% for col in winners.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                            {% for _, row in winners.iterrows() %}
+                            <tr>
+                                <td>{{ row['Par'] }}</td>
+                                <td class="positive">{{ "%.2f"|format(row['PnL Total (USDT)']) }}</td>
+                                <td class="positive">{{ "%.2f"|format(row['ROI Total (%)']) }}</td>
+                                <td>{{ row['Nº de Trades'] }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-wrapper">
+                    <h2>💔 Ranking de Perdedores</h2>
+                    <table>
+                         <thead><tr>{% for col in losers.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                            {% for _, row in losers.iterrows() %}
+                            <tr>
+                                <td>{{ row['Par'] }}</td>
+                                <td class="negative">{{ "%.2f"|format(row['PnL Total (USDT)']) }}</td>
+                                <td class="negative">{{ "%.2f"|format(row['ROI Total (%)']) }}</td>
+                                <td>{{ row['Nº de Trades'] }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="table-wrapper" style="margin-top: 30px;">
+                <h2>📊 Resumo por Tipo de Saída</h2>
+                <table>
+                    <thead><tr>{% for col in exit_summary.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead>
+                    <tbody>
+                        {% for _, row in exit_summary.iterrows() %}
+                        <tr>
+                            <td>{{ row['Tipo de Saída'] }}</td>
+                            <td class="{{ 'positive' if row['PnL Total (USDT)'] > 0 else 'negative' }}">{{ "%.2f"|format(row['PnL Total (USDT)']) }}</td>
+                            <td class="{{ 'positive' if row['ROI Médio (%)'] > 0 else 'negative' }}">{{ "%.2f"|format(row['ROI Médio (%)']) }}</td>
+                            <td>{{ "%.2f"|format(row['Taxa de Acerto (%)']) }}</td>
+                            <td>{{ row['Contagem'] }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

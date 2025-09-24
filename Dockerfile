@@ -10,8 +10,8 @@ COPY requirements.txt .
 # Instalar as dependências
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar o código da aplicação
-COPY app.py .
+# Copiar todos os arquivos da aplicação (.py, pasta templates, etc.)
+COPY . .
 
 # Expor a porta que o Gunicorn irá usar
 EXPOSE 5000
