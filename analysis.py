@@ -1,77 +1,91 @@
 import pandas as pd
-from collections import defaultdict
-import logging
 
-def analyze_data(df):
-    """Processa o DataFrame de execuções e calcula PnL/ROI."""
-    if df.empty:
+def analyze_data(raw_data_df):
+    """
+    Analisa os dados brutos de trades, identifica operações completas (compra/venda)
+    e calcula o PnL e ROI para cada uma.
+    """
+    if raw_data_df.empty:
         return pd.DataFrame()
-        
-    trades_df = df[df['execType'] == 'Trade'].copy()
-    if trades_df.empty: 
-        return pd.DataFrame()
-    
-    numeric_cols = ['execQty', 'execPrice', 'execValue', 'execFee']
+
+    # Converte tipos de dados para garantir cálculos corretos
+    numeric_cols = ['execPrice', 'execQty', 'execFee']
     for col in numeric_cols:
-        trades_df[col] = pd.to_numeric(trades_df[col], errors='coerce')
-    trades_df.dropna(subset=numeric_cols, inplace=True)
+        raw_data_df[col] = pd.to_numeric(raw_data_df[col], errors='coerce')
     
-    trades_df['execTime'] = pd.to_numeric(trades_df['execTime'], errors='coerce')
-    trades_df.dropna(subset=['execTime'], inplace=True)
-    trades_df['execTime'] = pd.to_datetime(trades_df['execTime'], unit='ms')
-    
-    trades_df = trades_df.sort_values(by='execTime').reset_index(drop=True)
+    raw_data_df['execTime'] = pd.to_datetime(raw_data_df['execTime'], unit='ms')
+    raw_data_df.dropna(subset=numeric_cols, inplace=True)
 
-    open_positions = defaultdict(lambda: {'qty': 0.0, 'cost': 0.0, 'fees': 0.0, 'entry_time': None})
+    # Ordena por símbolo e tempo para processar na ordem correta
+    raw_data_df.sort_values(by=['symbol', 'execTime'], inplace=True)
+
     closed_trades = []
+    open_positions = {}
 
-    for _, row in trades_df.iterrows():
-        try:
-            symbol, side, qty, price, fee = row['symbol'], row['side'], row['execQty'], row['execPrice'], row['execFee']
-            position = open_positions[symbol]
-            signed_qty = qty if side == 'Buy' else -qty
-            
-            is_closing = (position['qty'] > 0 and side == 'Sell') or \
-                         (position['qty'] < 0 and side == 'Buy')
-            
-            if not is_closing:
-                if position['qty'] == 0: position['entry_time'] = row['execTime']
-                position['cost'] += signed_qty * price
-                position['qty'] += signed_qty
-                position['fees'] += fee
-            else:
-                close_qty = min(abs(position['qty']), qty)
-                if close_qty == 0: continue
-                
-                avg_entry_price = position['cost'] / position['qty']
-                entry_cost_closed = abs(avg_entry_price * close_qty)
-                
-                pnl_gross = (price - abs(avg_entry_price)) * close_qty if position['qty'] > 0 else (abs(avg_entry_price) - price) * close_qty
-                
-                entry_fees_closed = (position['fees'] / abs(position['qty'])) * close_qty if abs(position['qty']) > 0 else 0
-                pnl_net = pnl_gross - (entry_fees_closed + fee)
-                roi = (pnl_net / entry_cost_closed) * 100 if entry_cost_closed > 0 else 0
-                
-                exit_type = row.get('stopOrderType')
-                if pd.isna(exit_type) or exit_type in ['UNKNOWN', '']:
-                    exit_type = row.get('createType', 'Manual')
-
-                closed_trades.append({
-                    'symbol': symbol, 'position_side': 'Long' if position['qty'] > 0 else 'Short',
-                    'entry_time': position['entry_time'], 'exit_time': row['execTime'], 'quantity': close_qty,
-                    'avg_entry_price': abs(avg_entry_price), 'exit_price': price, 'pnl_net': pnl_net, 'roi_%': roi,
-                    'exit_type': exit_type
-                })
-                
-                position['qty'] += signed_qty
-                position['cost'] = position['qty'] * avg_entry_price
-                position['fees'] -= entry_fees_closed
-                
-                if abs(position['qty']) < 1e-9:
-                    open_positions.pop(symbol, None)
-
-        except (ZeroDivisionError, TypeError, KeyError) as e:
-            logging.error(f"Erro ao processar trade para o símbolo {row.get('symbol', 'N/A')}: {e}")
+    for _, row in raw_data_df.iterrows():
+        symbol = row['symbol']
+        side = row['side']
+        
+        if row['execType'] != 'Trade':
             continue
+
+        if symbol not in open_positions:
+            open_positions[symbol] = {'trades': [], 'total_qty': 0, 'position_side': None}
+
+        if open_positions[symbol]['position_side'] is None:
+            open_positions[symbol]['position_side'] = side
+            open_positions[symbol]['trades'].append(row)
+            open_positions[symbol]['total_qty'] += row['execQty']
+        elif side == open_positions[symbol]['position_side']:
+            open_positions[symbol]['trades'].append(row)
+            open_positions[symbol]['total_qty'] += row['execQty']
+        else:
+            closing_qty = row['execQty']
             
+            entry_trades = open_positions[symbol]['trades']
+            total_entry_value = sum(t['execPrice'] * t['execQty'] for t in entry_trades)
+            total_entry_qty = sum(t['execQty'] for t in entry_trades)
+            avg_entry_price = total_entry_value / total_entry_qty if total_entry_qty > 0 else 0
+            
+            entry_cost = avg_entry_price * closing_qty
+
+            pnl = (row['execPrice'] - avg_entry_price) * closing_qty
+            if open_positions[symbol]['position_side'] == 'Sell':
+                pnl = -pnl
+
+            total_fees = sum(t['execFee'] for t in entry_trades) + row['execFee']
+            pnl_net = pnl - total_fees
+            
+            roi = (pnl_net / entry_cost) * 100 if entry_cost > 0 else 0
+
+            # --- LÓGICA DE TIPO DE SAÍDA CORRIGIDA ---
+            exit_type = row.get('stopOrderType')
+            # Se o campo existe e não está vazio ou 'UNKNOWN'
+            if exit_type and exit_type not in ['UNKNOWN', '']:
+                pass # Mantém o valor (ex: 'StopLoss', 'TakeProfit', 'TrailingStop')
+            # Se não, verifica como a ordem foi criada
+            elif row.get('createType') == 'CreateByUser':
+                exit_type = 'Parcial' # Mais descritivo
+            else:
+                exit_type = 'Desconhecido' # Caso genérico
+
+            closed_trades.append({
+                'symbol': symbol,
+                'position_side': open_positions[symbol]['position_side'],
+                'entry_time': entry_trades[0]['execTime'],
+                'exit_time': row['execTime'],
+                'quantity': closing_qty,
+                'avg_entry_price': avg_entry_price,
+                'exit_price': row['execPrice'],
+                'entry_cost': entry_cost,
+                'pnl_net': pnl_net,
+                'roi_%': roi,
+                'exit_type': exit_type # Usa o valor corrigido
+            })
+
+            open_positions.pop(symbol, None)
+
+    if not closed_trades:
+        return pd.DataFrame()
+
     return pd.DataFrame(closed_trades)
