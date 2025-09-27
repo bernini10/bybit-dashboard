@@ -3,35 +3,82 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Detalhes dos Trades - {{ symbol }}</title>
+    <title>Detalhes dos Trades para {{ symbol }}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
-        .container { max-width: 95%; margin: auto; }
-        h1 { color: #00aaff; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background-color: #1e1e1e; border-radius: 8px; overflow: hidden; }
-        th, td { padding: 12px 15px; border-bottom: 1px solid #333; text-align: left; white-space: nowrap; }
-        th { background-color: #333; }
-        .positive { color: #28a745; }
-        .negative { color: #dc3545; }
-        .back-link { display: inline-block; margin-bottom: 20px; color: #00aaff; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #1A202C;
+            color: #E2E8F0;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background-color: #2D3748;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1 );
+        }
+        h1 {
+            color: #A0AEC0;
+            border-bottom: 2px solid #4A5568;
+            padding-bottom: 10px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #63B3ED;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #4A5568;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #4A5568;
+            color: #E2E8F0;
+        }
+        tr:nth-child(even) {
+            background-color: #2D3748;
+        }
+        tr:hover {
+            background-color: #4A5568;
+        }
+        .positive { color: #48BB78; }
+        .negative { color: #F56565; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Detalhes dos Trades para: {{ symbol }}</h1>
-        <a href="{{ url_for('dashboard') }}" class="back-link">← Voltar para o Dashboard Principal</a>
+        <h1>Detalhes dos Trades para: <span style="color: #63B3ED;">{{ symbol }}</span></h1>
+        
+        <!-- A CORREÇÃO ESTÁ AQUI: url_for('dashboard') foi trocado para url_for('index') -->
+        <a href="{{ url_for('index') }}" class="back-link">← Voltar para o Dashboard Principal</a>
+
         <table>
             <thead>
                 <tr>
-                    <th>Lado</th>
-                    <th>Início da Operação</th>
-                    <th>Fim da Operação</th>
+                    <th>Início</th>
+                    <th>Fim</th>
                     <th>Duração</th>
+                    <th>Lado</th>
                     <th>Quantidade</th>
                     <th>Preço Médio Entrada</th>
+                    <th>Preço Saída</th>
                     <th>Valor Nocional (USDT)</th>
                     <th>Margem (USDT)</th>
-                    <th>Preço Saída</th>
                     <th>PnL (USDT)</th>
                     <th>ROI (%)</th>
                     <th>Tipo de Saída</th>
@@ -40,18 +87,17 @@
             <tbody>
                 {% for trade in trades %}
                 <tr>
-                    <td>{{ trade.position_side }}</td>
                     <td>{{ trade.entry_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                     <td>{{ trade.exit_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                     <td>{{ trade.duration }}</td>
+                    <td>{{ trade.position_side }}</td>
                     <td>{{ trade.quantity }}</td>
                     <td>{{ "%.4f"|format(trade.avg_entry_price) }}</td>
-                    <td>{{ "%.2f"|format(trade.entry_cost) }}</td>
-                    <td>{{ "%.2f"|format(trade.margin_used) }}</td>
                     <td>{{ "%.4f"|format(trade.exit_price) }}</td>
+                    <td>{{ "%.2f"|format(trade.valor_nocional) }}</td>
+                    <td>{{ "%.2f"|format(trade.margem) }}</td>
                     <td class="{{ 'positive' if trade.pnl_net > 0 else 'negative' }}">{{ "%.4f"|format(trade.pnl_net) }}</td>
-                    <!-- CORREÇÃO AQUI: Usa trade['roi_%'] em vez de trade.roi -->
-                    <td class="{{ 'positive' if trade['roi_%'] > 0 else 'negative' }}">{{ "%.2f"|format(trade['roi_%']) }}</td>
+                    <td class="{{ 'positive' if trade.roi > 0 else 'negative' }}">{{ "%.2f"|format(trade.roi) }}</td>
                     <td>{{ trade.exit_type }}</td>
                 </tr>
                 {% endfor %}
