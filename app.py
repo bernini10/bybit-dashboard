@@ -24,9 +24,11 @@ os.makedirs(app.config["SESSION_FILE_DIR"], exist_ok=True)
 
 @app.route('/', methods=['GET'])
 def index():
-    """Página inicial que renderiza o dashboard."""
-    if 'analysis_done' in session:
-        session.clear()
+    """
+    Página inicial que renderiza o dashboard.
+    Não limpa mais a sessão aqui para manter o estado.
+    """
+    # A lógica de limpeza foi movida para a rota /logout
     return render_template('dashboard.html')
 
 @app.route('/analyze', methods=['POST'])
