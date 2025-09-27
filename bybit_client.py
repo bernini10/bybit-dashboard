@@ -1,50 +1,68 @@
+import pandas as pd
+from datetime import datetime, timedelta
+from pybit.unified_trading import HTTP
 import time
 import logging
-from datetime import datetime, timezone, timedelta
-import pandas as pd
-from pybit.unified_trading import HTTP
 
-def fetch_bybit_data(api_key, api_secret, start_date_str, end_date_str):
-    """Busca dados da Bybit, lidando com paginação e o limite de 7 dias."""
-    try:
-        session = HTTP(api_key=api_key, api_secret=api_secret)
-        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-    except Exception as e:
-        logging.error(f"Erro nas credenciais ou formato de data: {e}")
-        return None, f"Erro nas credenciais ou formato de data: {e}"
-
-    all_executions = []
-    current_start_dt = start_date
+def fetch_all_trades(api_key, api_secret, start_date_str, end_date_str):
+    """
+    Busca todos os trades de uma conta Bybit em um determinado período,
+    respeitando o limite de 7 dias da API.
+    """
+    session = HTTP(
+        testnet=False,
+        api_key=api_key,
+        api_secret=api_secret,
+    )
     
-    while current_start_dt < end_date:
-        current_end_dt = min(current_start_dt + timedelta(days=7), end_date)
-        start_ts = int(current_start_dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
-        end_ts = int(current_end_dt.replace(tzinfo=timezone.utc).timestamp() * 1000)
+    all_trades = []
+    
+    start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+    end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+    
+    current_start = start_date
+    
+    while current_start <= end_date:
+        current_end = min(current_start + timedelta(days=6), end_date)
         
-        logging.info(f"Buscando dados de {current_start_dt.date()} a {current_end_dt.date()}...")
+        start_timestamp = int(current_start.timestamp() * 1000)
+        end_timestamp = int((current_end + timedelta(days=1) - timedelta(seconds=1)).timestamp() * 1000)
+
+        logging.info(f"Buscando dados de {current_start.strftime('%Y-%m-%d')} a {current_end.strftime('%Y-%m-%d')}...")
         
         cursor = ""
         while True:
             try:
                 response = session.get_executions(
-                    category="linear", startTime=start_ts, endTime=end_ts, limit=100, cursor=cursor
+                    category="linear",
+                    limit=100,
+                    cursor=cursor,
+                    startTime=start_timestamp,
+                    endTime=end_timestamp,
                 )
-                if response['retCode'] == 0:
-                    executions = response['result']['list']
-                    all_executions.extend(executions)
-                    cursor = response['result'].get('nextPageCursor', "")
-                    if not cursor: break
-                    time.sleep(0.2)
-                else:
-                    msg = f"Erro da API Bybit ao buscar trades: {response['retMsg']} (ErrCode: {response['retCode']})"
-                    logging.error(msg)
-                    return None, msg
-            except Exception as e:
-                msg = f"Exceção ao buscar trades: {e}"
-                logging.error(msg)
-                return None, msg
-        
-        current_start_dt += timedelta(days=7)
+                
+                if response['retCode'] != 0:
+                    raise Exception(f"Erro da API Bybit: {response['retMsg']} (ErrCode: {response['retCode']})")
 
-    return pd.DataFrame(all_executions), None
+                trades = response['result']['list']
+                all_trades.extend(trades)
+                
+                cursor = response['result'].get('nextPageCursor')
+                if not cursor:
+                    break
+                
+                time.sleep(0.2) # Respeitar o rate limit da API
+
+            except Exception as e:
+                logging.error(f"Exceção ao buscar trades: {e}")
+                # Decide se quer parar ou continuar em caso de erro
+                # Para este caso, vamos parar e relançar a exceção
+                raise e
+
+        current_start = current_end + timedelta(days=1)
+
+    if not all_trades:
+        return pd.DataFrame()
+
+    return pd.DataFrame(all_trades)
+

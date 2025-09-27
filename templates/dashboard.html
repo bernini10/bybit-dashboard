@@ -3,154 +3,330 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard de Trades Bybit</title>
+    <title>Dashboard de Análise Bybit</title>
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
-        .container { max-width: 1200px; margin: auto; }
-        h1, h2 { color: #00aaff; border-bottom: 2px solid #00aaff; padding-bottom: 10px; }
-        .form-section { background-color: #1e1e1e; padding: 20px 30px; border-radius: 8px; border: 1px solid #333; margin-bottom: 30px; }
-        form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px 20px; align-items: end; }
-        label { font-weight: bold; color: #bbb; display: block; margin-bottom: 5px; }
-        input[type="text"], input[type="password"], input[type="date"], input[type="number"] { width: 100%; box-sizing: border-box; background-color: #333; border: 1px solid #555; color: #e0e0e0; padding: 10px; border-radius: 4px; font-size: 1em; }
-        button { grid-column: 1 / -1; background-color: #00aaff; color: #121212; padding: 12px; border: none; border-radius: 4px; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: background-color 0.3s; }
-        button:hover { background-color: #0088cc; }
-        .flash-message { padding: 15px; margin-bottom: 20px; border-radius: 4px; text-align: center; }
-        .flash-error { background-color: #dc3545; color: white; }
-        .kpi-container { display: flex; justify-content: space-around; flex-wrap: wrap; gap: 20px; margin-bottom: 40px; }
-        .kpi-card { background-color: #1e1e1e; border-radius: 8px; padding: 20px; text-align: center; flex-grow: 1; border: 1px solid #333; }
-        .kpi-card h3 { margin-top: 0; font-size: 1.2em; color: #bbb; }
-        .kpi-value { font-size: 2.5em; font-weight: bold; }
-        .positive { color: #28a745; }
-        .negative { color: #dc3545; }
-        .content-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 30px; margin-top: 20px; }
-        .table-wrapper { background-color: #1e1e1e; padding: 20px; border-radius: 8px; border: 1px solid #333; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 10px; border-bottom: 1px solid #333; text-align: left; font-size: 0.9em; }
-        th { color: #00aaff; }
-        a { color: #00aaff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        td.positive { color: #28a745; font-weight: bold; }
-        td.negative { color: #dc3545; font-weight: bold; }
+        :root {
+            --bg-color: #121826;
+            --sidebar-bg: #1A202C;
+            --card-bg: #2D3748;
+            --border-color: #4A5568;
+            --text-color: #E2E8F0;
+            --text-muted: #A0AEC0;
+            --primary-color: #4299E1;
+            --primary-hover: #2B6CB0;
+            --positive-color: #48BB78;
+            --negative-color: #F56565;
+            --warning-color: #ED8936;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color );
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .sidebar {
+            width: 350px;
+            background-color: var(--sidebar-bg);
+            padding: 25px;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            border-right: 1px solid var(--border-color);
+        }
+        .main-content {
+            flex-grow: 1;
+            padding: 25px;
+            overflow-y: auto;
+        }
+        h1, h2, h3 { color: var(--text-color); }
+        h1 { font-size: 1.8em; margin-bottom: 5px; color: var(--primary-color); }
+        .sidebar p { font-size: 0.9em; color: var(--text-muted); margin-top: 0; }
+        .sidebar-section { margin-bottom: 30px; }
+        .sidebar-section h2 { font-size: 1.2em; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 15px; }
+        label { font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 5px; font-size: 0.9em; }
+        input[type="text"], input[type="password"], input[type="date"], input[type="number"] {
+            width: 100%; box-sizing: border-box; background-color: var(--card-bg); border: 1px solid var(--border-color);
+            color: var(--text-color); padding: 10px; border-radius: 6px; font-size: 1em;
+        }
+        .form-group { margin-bottom: 15px; }
+        .btn {
+            display: block; width: 100%; text-align: center; padding: 12px; border: none; border-radius: 6px;
+            font-size: 1.1em; font-weight: bold; cursor: pointer; transition: background-color 0.3s;
+        }
+        .btn-primary { background-color: var(--primary-color); color: white; }
+        .btn-primary:hover { background-color: var(--primary-hover); }
+        .btn-secondary { background-color: var(--warning-color); color: white; margin-top: 15px; }
+        .btn:disabled { background-color: var(--border-color); cursor: not-allowed; }
+        
+        #flash-container { position: fixed; top: 20px; right: 20px; z-index: 1000; width: 350px; }
+        .flash-message { padding: 15px; margin-bottom: 10px; border-radius: 6px; text-align: center; opacity: 0; transform: translateX(100%); transition: all 0.5s; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .flash-message.show { opacity: 1; transform: translateX(0); }
+        .flash-error { background-color: var(--negative-color); color: white; }
+        .flash-success { background-color: var(--positive-color); color: white; }
+        .flash-info { background-color: var(--primary-color); color: white; }
+
+        #blacklist-list { margin-top: 10px; max-height: 200px; overflow-y: auto; }
+        .blacklist-item { display: flex; justify-content: space-between; align-items: center; background-color: var(--card-bg); padding: 8px 12px; border-radius: 4px; margin-bottom: 8px; }
+        .blacklist-item span { font-family: monospace; }
+        .blacklist-item button { background-color: var(--positive-color); color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8em; }
+        
+        /* Estilos da área de conteúdo */
+        .placeholder { text-align: center; margin-top: 20%; color: var(--text-muted); }
+        .placeholder h2 { font-size: 1.5em; }
+        .main-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .results-header { font-size: 1.1em; color: var(--text-muted); }
+        .header-actions a { color: var(--text-muted); text-decoration: none; background-color: var(--card-bg); padding: 8px 15px; border-radius: 6px; transition: background-color 0.3s; }
+        .header-actions a:hover { background-color: var(--border-color); }
+        .kpi-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }
+        .kpi-card { background-color: var(--card-bg); border-radius: 8px; padding: 25px; text-align: center; }
+        .kpi-card h3 { margin-top: 0; font-size: 1.1em; color: var(--text-muted); font-weight: 500; }
+        .kpi-value { font-size: 2.2em; font-weight: 700; }
+        .positive { color: var(--positive-color); }
+        .negative { color: var(--negative-color); }
+        
+        .tabs { border-bottom: 1px solid var(--border-color); margin-bottom: 20px; }
+        .tab-link { background: none; border: none; color: var(--text-muted); padding: 10px 20px; cursor: pointer; font-size: 1em; border-bottom: 3px solid transparent; }
+        .tab-link.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+        .tab-content { display: none; }
+        
+        table.results-table { width: 100%; border-collapse: collapse; }
+        table.results-table th, table.results-table td { padding: 12px 15px; border-bottom: 1px solid var(--border-color); text-align: left; font-size: 0.95em; }
+        table.results-table thead th { color: var(--text-muted); font-weight: 600; cursor: pointer; }
+        .action-menu-container { position: relative; }
+        .action-menu-button { background: none; border: none; color: var(--text-muted); font-size: 1.5em; cursor: pointer; padding: 0 10px; }
+        .action-menu-dropdown { display: none; position: absolute; right: 0; background-color: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 6px; z-index: 10; min-width: 150px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+        .action-menu-dropdown a, .action-menu-dropdown button { color: var(--text-color); padding: 10px 15px; text-decoration: none; display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer; font-size: 0.9em; }
+        .action-menu-dropdown a:hover, .action-menu-dropdown button:hover { background-color: var(--card-bg); }
+        .action-menu-dropdown .ban-option { color: var(--warning-color); }
+        .simulation-warning { background-color: var(--warning-color); color: #1A202C; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center; font-weight: bold; }
+        
+        /* Estilos do DataTables */
+        .dataTables_wrapper .dataTables_length, .dataTables_wrapper .dataTables_filter, .dataTables_wrapper .dataTables_info, .dataTables_wrapper .dataTables_paginate { color: #bbb; margin-bottom: 15px; }
+        .dataTables_wrapper .dataTables_length select, .dataTables_wrapper .dataTables_filter input { background-color: #333; border: 1px solid #555; color: #e0e0e0; padding: 5px; }
+        .dataTables_wrapper .dataTables_paginate .paginate_button { color: #bbb !important; border: 1px solid #555; margin: 0 2px; }
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current, .dataTables_wrapper .dataTables_paginate .paginate_button.current:hover { background: var(--primary-color); color: white !important; border-color: var(--primary-color); }
+        .dataTables_wrapper .dataTables_paginate .paginate_button:hover { background: #444; border-color: #666; }
+        table.dataTable thead .sorting, table.dataTable thead .sorting_asc, table.dataTable thead .sorting_desc { background-repeat: no-repeat; background-position: center right; }
+        table.dataTable thead .sorting { background-image: url('https://cdn.datatables.net/1.13.6/images/sort_both.png' ); }
+        table.dataTable thead .sorting_asc { background-image: url('https://cdn.datatables.net/1.13.6/images/sort_asc.png' ); }
+        table.dataTable thead .sorting_desc { background-image: url('https://cdn.datatables.net/1.13.6/images/sort_desc.png' ); }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Dashboard de Análise Bybit</h1>
+    <div id="flash-container"></div>
 
-        <div class="form-section">
-            <h2>Nova Análise</h2>
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                        <div class="flash-message flash-{{ category }}">{{ message }}</div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
-            <form action="/" method="post">
-                <div>
+    <div class="sidebar">
+        <h1>Bybit Dashboard</h1>
+        <p>Seu painel de controle e análise de trades.</p>
+        
+        <div class="sidebar-section">
+            <h2><span id="analysis-icon">⚙️</span> Controles de Análise</h2>
+            <form id="analysis-form">
+                <div class="form-group">
                     <label for="account_name">Nome da Conta:</label>
-                    <input type="text" id="account_name" name="account_name" placeholder="Ex: Bot Principal" value="{{ form_data.account_name or '' }}">
+                    <input type="text" id="account_name" name="account_name" placeholder="Ex: Bot Principal">
                 </div>
-                <div>
+                <div class="form-group">
                     <label for="api_key">API Key:</label>
-                    <input type="password" id="api_key" name="api_key" value="{{ form_data.api_key or '' }}" required>
+                    <input type="password" id="api_key" name="api_key" required>
                 </div>
-                <div>
+                <div class="form-group">
                     <label for="api_secret">API Secret:</label>
-                    <input type="password" id="api_secret" name="api_secret" value="{{ form_data.api_secret or '' }}" required>
+                    <input type="password" id="api_secret" name="api_secret" required>
                 </div>
-                <div>
-                    <label for="start_date">Data de Início:</label>
-                    <input type="date" id="start_date" name="start_date" value="{{ form_data.start_date or '' }}" required>
-                </div>
-                <div>
-                    <label for="end_date">Data de Fim:</label>
-                    <input type="date" id="end_date" name="end_date" value="{{ form_data.end_date or '' }}" required>
-                </div>
-                <!-- Novo Campo de Alavancagem -->
-                <div>
+                 <div class="form-group">
                     <label for="leverage">Alavancagem (Ex: 10):</label>
-                    <input type="number" id="leverage" name="leverage" value="{{ form_data.leverage or '10' }}" step="0.1" required>
+                    <input type="number" id="leverage" name="leverage" value="10" step="0.1" required>
                 </div>
-                <button type="submit">Analisar Trades</button>
+                <hr style="border-color: var(--border-color); grid-column: 1 / -1; margin: 10px 0;">
+                <div class="form-group">
+                    <label for="start_date">Data de Início:</label>
+                    <input type="date" id="start_date" name="start_date" required>
+                </div>
+                <div class="form-group">
+                    <label for="end_date">Data de Fim:</label>
+                    <input type="date" id="end_date" name="end_date" required>
+                </div>
+                <button type="submit" id="main-action-btn" class="btn btn-primary">Analisar Trades</button>
             </form>
         </div>
 
-        {% if analysis_done %}
-        <div class="results-section">
-            <p><strong>Resultados para a Conta:</strong> {{ account_name }} | <strong>Período:</strong> {{ start_date }} a {{ end_date }}</p>
-
-            <div class="kpi-container">
-                <div class="kpi-card">
-                    <h3>PnL Líquido Total</h3>
-                    <p class="kpi-value {{ 'positive' if summary.total_pnl > 0 else 'negative' }}">{{ "%.2f"|format(summary.total_pnl) }} USDT</p>
-                </div>
-                <div class="kpi-card">
-                    <h3>Taxa de Acerto</h3>
-                    <p class="kpi-value">{{ "%.2f"|format(summary.win_rate) }}%</p>
-                </div>
-                <div class="kpi-card">
-                    <h3>ROI Médio Total</h3>
-                    <p class="kpi-value {{ 'positive' if summary.avg_roi > 0 else 'negative' }}">{{ "%.2f"|format(summary.avg_roi) }}%</p>
-                </div>
+        <div class="sidebar-section" id="blacklist-section" style="display:none;">
+            <h2>🚫 Gerenciar Blacklist</h2>
+            <div id="blacklist-list">
+                <p id="no-blacklist-msg">Nenhum par na blacklist.</p>
             </div>
+            <button id="recalculate-btn" class="btn btn-secondary" style="display:none;">
+                Recalcular sem Pares da Blacklist
+            </button>
+        </div>
+    </div>
 
-            <div class="content-grid">
-                <div class="table-wrapper">
-                    <h2>🏆 Ranking de Ganhadores</h2>
-                    <table>
-                        <thead><tr>{% for col in winners.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead>
-                        <tbody>
-                            {% for _, row in winners.iterrows() %}
-                            <tr>
-                                <td><a href="{{ url_for('trade_details', symbol=row['Par']) }}" target="_blank">{{ row['Par'] }}</a></td>
-                                <td class="positive">{{ "%.2f"|format(row['PnL Total (USDT)']) }}</td>
-                                <td class="positive">{{ "%.2f"|format(row['ROI Total (%)']) }}</td>
-                                <td>{{ "%.2f"|format(row['Taxa de Acerto (%)']) }}%</td>
-                                <td>{{ row['Nº de Trades'] }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                <div class="table-wrapper">
-                    <h2>💔 Ranking de Perdedores</h2>
-                    <table>
-                         <thead><tr>{% for col in losers.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead>
-                        <tbody>
-                            {% for _, row in losers.iterrows() %}
-                            <tr>
-                                <td><a href="{{ url_for('trade_details', symbol=row['Par']) }}" target="_blank">{{ row['Par'] }}</a></td>
-                                <td class="negative">{{ "%.2f"|format(row['PnL Total (USDT)']) }}</td>
-                                <td class="negative">{{ "%.2f"|format(row['ROI Total (%)']) }}</td>
-                                <td>{{ "%.2f"|format(row['Taxa de Acerto (%)']) }}%</td>
-                                <td>{{ row['Nº de Trades'] }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="table-wrapper" style="margin-top: 30px;">
-                <h2>📊 Resumo por Tipo de Saída</h2>
-                <table>
-                    <thead><tr>{% for col in exit_summary.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead>
-                    <tbody>
-                        {% for _, row in exit_summary.iterrows() %}
-                        <tr>
-                            <td>{{ row['Tipo de Saída'] }}</td>
-                            <td class="{{ 'positive' if row['PnL Total (USDT)'] > 0 else 'negative' }}">{{ "%.2f"|format(row['PnL Total (USDT)']) }}</td>
-                            <td class="{{ 'positive' if row['ROI Médio (%)'] > 0 else 'negative' }}">{{ "%.2f"|format(row['ROI Médio (%)']) }}</td>
-                            <td>{{ "%.2f"|format(row['Taxa de Acerto (%)']) }}</td>
-                            <td>{{ row['Contagem'] }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    <div class="main-content">
+        <div id="results-container">
+            <div class="placeholder">
+                <h2>Bem-vindo!</h2>
+                <p>Preencha os dados na barra lateral para iniciar sua análise.</p>
             </div>
         </div>
-        {% endif %}
     </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.0.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script>
+        // --- FUNÇÕES DE UI ---
+        function showFlashMessage(message, category ) {
+            const container = document.getElementById('flash-container');
+            const div = document.createElement('div');
+            div.className = `flash-message flash-${category}`;
+            div.textContent = message;
+            container.appendChild(div);
+            setTimeout(() => { div.classList.add('show'); }, 10);
+            setTimeout(() => {
+                div.classList.remove('show');
+                setTimeout(() => div.remove(), 500);
+            }, 5000);
+        }
+
+        function openTab(evt, tabName) {
+            $('.tab-content').hide();
+            $('.tab-link').removeClass('active');
+            $('#' + tabName).show();
+            $(evt.currentTarget).addClass('active');
+        }
+
+        function initializeDataTables() {
+            $('.results-table').each(function() {
+                if ($.fn.DataTable.isDataTable(this)) {
+                    $(this).DataTable().destroy();
+                }
+                $(this).DataTable({
+                    "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/pt-BR.json" },
+                    "paging": false, "searching": false, "info": false,
+                    "columnDefs": [{ "orderable": false, "targets": -1 }]
+                });
+            });
+        }
+
+        // --- LÓGICA DE EVENTOS ---
+        $(document).ready(function() {
+            // Click fora do menu para fechar
+            $(window).on('click', function(event) {
+                if (!$(event.target).closest('.action-menu-container').length) {
+                    $('.action-menu-dropdown').hide();
+                }
+            });
+
+            // Lida com o envio do formulário principal
+            $('#analysis-form').on('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                const actionButton = $('#main-action-btn');
+                
+                actionButton.prop('disabled', true).text('Analisando...');
+
+                fetch('/analyze', { method: 'POST', body: formData })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            $('#results-container').html(data.template);
+                            initializeDataTables();
+                            $('#blacklist-section').show();
+                        } else {
+                            showFlashMessage(data.message, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        showFlashMessage('Erro de rede ao processar a solicitação.', 'error');
+                        console.error('Error:', error);
+                    })
+                    .finally(() => {
+                        actionButton.prop('disabled', false).text('Analisar Trades');
+                    });
+            });
+
+            // --- Eventos delegados para elementos dinâmicos ---
+            const mainContent = $('body');
+
+            // Abrir/Fechar menu de ações
+            mainContent.on('click', '.action-menu-button', function(e) {
+                e.stopPropagation();
+                var dropdown = $(this).next('.action-menu-dropdown');
+                $('.action-menu-dropdown').not(dropdown).hide();
+                dropdown.toggle();
+            });
+
+            // Banir Par
+            mainContent.on('click', '.ban-btn', function() {
+                const symbol = $(this).data('symbol');
+                fetch(`/ban/${symbol}`, { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        showFlashMessage(data.message, data.status);
+                        if (data.status === 'success') {
+                            $('#no-blacklist-msg').hide();
+                            $('#recalculate-btn').show();
+                            const blacklistItem = `<div class="blacklist-item" data-symbol="${symbol}"><span>${symbol}</span><button class="unban-btn" data-symbol="${symbol}">Permitir</button></div>`;
+                            $('#blacklist-list').append(blacklistItem);
+                        }
+                    });
+            });
+
+            // Permitir Par
+            mainContent.on('click', '.unban-btn', function() {
+                const symbol = $(this).data('symbol');
+                const item = $(this).closest('.blacklist-item');
+                fetch(`/unban/${symbol}`, { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        showFlashMessage(data.message, data.status);
+                        if (data.status === 'success') {
+                            item.remove();
+                            if ($('#blacklist-list').children('.blacklist-item').length === 0) {
+                                $('#no-blacklist-msg').show();
+                                $('#recalculate-btn').hide();
+                            }
+                        }
+                    });
+            });
+
+            // Recalcular Análise
+            mainContent.on('click', '#recalculate-btn', function() {
+                fetch('/recalculate', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            $('#results-container').html(data.template);
+                            initializeDataTables();
+                        } else {
+                            showFlashMessage(data.message, 'error');
+                        }
+                    });
+            });
+
+            // Restaurar Análise
+            mainContent.on('click', '#restore-btn', function() {
+                fetch('/restore', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            $('#results-container').html(data.template);
+                            initializeDataTables();
+                        } else {
+                            showFlashMessage(data.message, 'error');
+                        }
+                    });
+            });
+            
+            // Trocar Abas
+            mainContent.on('click', '.tab-link', function(e) {
+                openTab(e, $(this).data('tab'));
+            });
+        });
+    </script>
 </body>
 </html>

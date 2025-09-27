@@ -1,118 +1,139 @@
-from flask import Flask, render_template, request, flash, session, redirect, url_for
+from flask import Flask, render_template, request, session, redirect, url_for, jsonify
 from flask_session import Session
 import os
-import logging
-import pandas as pd
+import shutil
+from datetime import datetime, timedelta
 
-from bybit_client import fetch_bybit_data
-from analysis import analyze_data
+# Meus módulos
+from bybit_client import fetch_all_trades
+from analysis import process_trades_data
 
+# --- CONFIGURAÇÃO INICIAL ---
 app = Flask(__name__)
-app.config["SESSION_PERMANENT"] = False
+app.config["SECRET_KEY"] = os.urandom(24)
 app.config["SESSION_TYPE"] = "filesystem"
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'uma-chave-secreta-muito-forte-para-dev-local')
+app.config["SESSION_FILE_DIR"] = "./flask_session"
 Session(app)
 
-logging.basicConfig(level=logging.INFO)
+# Limpa a pasta de sessão na inicialização para garantir um começo limpo
+if os.path.exists(app.config["SESSION_FILE_DIR"]):
+    shutil.rmtree(app.config["SESSION_FILE_DIR"])
+os.makedirs(app.config["SESSION_FILE_DIR"], exist_ok=True)
 
-@app.route('/', methods=['GET', 'POST'])
-def dashboard():
-    if request.method == 'POST':
-        session['form_data'] = request.form
+# --- ROTAS DA APLICAÇÃO ---
+
+@app.route('/', methods=['GET'])
+def index():
+    """Página inicial que renderiza o dashboard."""
+    if 'analysis_done' in session:
+        session.clear()
+    return render_template('dashboard.html')
+
+@app.route('/analyze', methods=['POST'])
+def analyze():
+    """Rota para a primeira análise de dados."""
+    form_data = request.form.to_dict()
+    session['form_data'] = form_data
+    
+    try:
+        raw_df = fetch_all_trades(
+            form_data['api_key'], 
+            form_data['api_secret'],
+            form_data['start_date'], 
+            form_data['end_date']
+        )
         
-        api_key = request.form.get('api_key')
-        api_secret = request.form.get('api_secret')
-        start_date = request.form.get('start_date')
-        end_date = request.form.get('end_date')
-        account_name = request.form.get('account_name') or "Não especificado"
-        # Pega a alavancagem do formulário
-        leverage = float(request.form.get('leverage', 1))
-        session['leverage'] = leverage # Salva na sessão para a página de detalhes
+        if raw_df.empty:
+            return jsonify({'status': 'error', 'message': 'Nenhum trade encontrado no período especificado.'})
 
-        raw_data_df, error_message = fetch_bybit_data(api_key, api_secret, start_date, end_date)
+        analysis_results = process_trades_data(raw_df, float(form_data.get('leverage', 10)))
         
-        if error_message:
-            flash(error_message, 'error')
-            return render_template('dashboard.html', analysis_done=False, form_data=session.get('form_data', {}))
-        
-        if raw_data_df.empty:
-            flash('Nenhum trade encontrado para o período e credenciais informados.', 'error')
-            return render_template('dashboard.html', analysis_done=False, form_data=session.get('form_data', {}))
+        session['analysis_results'] = analysis_results
+        session['analysis_done'] = True
+        session['blacklist'] = []
+        session['is_simulation'] = False
 
-        analysis_df = analyze_data(raw_data_df)
-        
-        if analysis_df.empty:
-            flash('Nenhuma operação completa (abertura e fechamento) foi encontrada nos dados.', 'error')
-            return render_template('dashboard.html', analysis_done=False, form_data=session.get('form_data', {}))
+        return jsonify({
+            'status': 'success',
+            'template': render_template('partials/results.html', **analysis_results, form_data=form_data, blacklist=[], is_simulation=False)
+        })
 
-        session['analysis_df'] = analysis_df.to_json(orient='split', date_format='iso')
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Erro ao processar a solicitação: {e}'})
 
-        total_pnl = analysis_df['pnl_net'].sum()
-        win_rate = (analysis_df['pnl_net'] > 0).mean() * 100 if not analysis_df.empty else 0
-        avg_roi = analysis_df['roi_%'].mean() if not analysis_df.empty else 0
-        summary = {'total_pnl': total_pnl, 'win_rate': win_rate, 'avg_roi': avg_roi}
+@app.route('/recalculate', methods=['POST'])
+def recalculate():
+    """Recalcula a análise excluindo os pares da blacklist."""
+    if not session.get('analysis_done'):
+        return jsonify({'status': 'error', 'message': 'Nenhuma análise encontrada na sessão.'})
 
-        symbol_summary = analysis_df.groupby('symbol').agg(
-            pnl_total=('pnl_net', 'sum'),
-            roi_total=('roi_%', 'sum'),
-            n_trades=('symbol', 'size'),
-            win_rate=('pnl_net', lambda x: (x > 0).mean() * 100)
-        ).reset_index()
-        
-        symbol_summary.rename(columns={
-            'symbol': 'Par', 'pnl_total': 'PnL Total (USDT)', 'roi_total': 'ROI Total (%)', 
-            'n_trades': 'Nº de Trades', 'win_rate': 'Taxa de Acerto (%)'
-        }, inplace=True)
-        
-        symbol_summary = symbol_summary[['Par', 'PnL Total (USDT)', 'ROI Total (%)', 'Taxa de Acerto (%)', 'Nº de Trades']]
-        
-        winners_df = symbol_summary[symbol_summary['PnL Total (USDT)'] >= 0].sort_values(by='PnL Total (USDT)', ascending=False)
-        losers_df = symbol_summary[symbol_summary['PnL Total (USDT)'] < 0].sort_values(by='PnL Total (USDT)', ascending=True)
+    original_results = session['analysis_results']
+    blacklist = session.get('blacklist', [])
+    
+    filtered_df = original_results['raw_df'][~original_results['raw_df']['symbol'].isin(blacklist)]
+    
+    if filtered_df.empty:
+        return jsonify({'status': 'error', 'message': 'Nenhum trade restante após aplicar a blacklist.'})
 
-        exit_type_summary = analysis_df.groupby('exit_type').agg(
-            pnl_total=('pnl_net', 'sum'), roi_medio=('roi_%', 'mean'), taxa_acerto=('pnl_net', lambda x: (x > 0).mean() * 100), contagem=('exit_type', 'size')
-        ).reset_index()
-        exit_type_summary.rename(columns={'exit_type': 'Tipo de Saída', 'pnl_total': 'PnL Total (USDT)', 'roi_medio': 'ROI Médio (%)', 'taxa_acerto': 'Taxa de Acerto (%)', 'contagem': 'Contagem'}, inplace=True)
-        exit_type_summary = exit_type_summary.sort_values(by='PnL Total (USDT)', ascending=False)
+    recalculated_results = process_trades_data(filtered_df, float(session['form_data'].get('leverage', 10)))
+    
+    session['is_simulation'] = True
 
-        return render_template('dashboard.html',
-                               analysis_done=True, summary=summary, winners=winners_df, losers=losers_df,
-                               exit_summary=exit_type_summary, start_date=start_date, end_date=end_date,
-                               account_name=account_name, form_data=session.get('form_data', {}))
+    return jsonify({
+        'status': 'success',
+        'template': render_template('partials/results.html', **recalculated_results, form_data=session['form_data'], blacklist=blacklist, is_simulation=True)
+    })
 
-    session.clear()
-    return render_template('dashboard.html', analysis_done=False, form_data={})
+@app.route('/restore', methods=['POST'])
+def restore():
+    """Restaura a análise original completa."""
+    if not session.get('analysis_done'):
+        return jsonify({'status': 'error', 'message': 'Nenhuma análise encontrada na sessão.'})
+    
+    session['is_simulation'] = False
+    
+    return jsonify({
+        'status': 'success',
+        'template': render_template('partials/results.html', **session['analysis_results'], form_data=session['form_data'], blacklist=session.get('blacklist', []), is_simulation=False)
+    })
+
+@app.route('/ban/<symbol>', methods=['POST'])
+def ban_symbol(symbol):
+    """Adiciona um símbolo à blacklist na sessão."""
+    blacklist = session.get('blacklist', [])
+    if symbol not in blacklist:
+        blacklist.append(symbol)
+        session['blacklist'] = blacklist
+        return jsonify({'status': 'success', 'message': f'{symbol} adicionado à blacklist.'})
+    return jsonify({'status': 'info', 'message': f'{symbol} já está na blacklist.'})
+
+@app.route('/unban/<symbol>', methods=['POST'])
+def unban_symbol(symbol):
+    """Remove um símbolo da blacklist na sessão."""
+    blacklist = session.get('blacklist', [])
+    if symbol in blacklist:
+        blacklist.remove(symbol)
+        session['blacklist'] = blacklist
+        return jsonify({'status': 'success', 'message': f'{symbol} removido da blacklist.'})
+    return jsonify({'status': 'info', 'message': f'{symbol} não encontrado na blacklist.'})
 
 @app.route('/trades/<symbol>')
 def trade_details(symbol):
-    analysis_json = session.get('analysis_df')
-    leverage = session.get('leverage', 1.0) # Recupera a alavancagem da sessão
+    """Mostra a página de detalhes para um símbolo específico."""
+    if not session.get('analysis_done'):
+        return redirect(url_for('index'))
     
-    if not analysis_json:
-        flash('Sessão expirada ou dados não encontrados. Por favor, faça uma nova análise.', 'error')
-        return redirect(url_for('dashboard'))
+    analysis_data = session.get('analysis_results')
 
-    analysis_df = pd.read_json(analysis_json, orient='split')
-    
-    analysis_df['entry_time'] = pd.to_datetime(analysis_df['entry_time'])
-    analysis_df['exit_time'] = pd.to_datetime(analysis_df['exit_time'])
+    trades = [trade for trade in analysis_data['all_trades'] if trade['symbol'] == symbol]
+    return render_template('trades_detail.html', trades=trades, symbol=symbol)
 
-    symbol_trades = analysis_df[analysis_df['symbol'] == symbol].copy()
-    
-    if symbol_trades.empty:
-        flash(f'Nenhum trade encontrado para o símbolo {symbol}.', 'error')
-        return redirect(url_for('dashboard'))
+@app.route('/logout')
+def logout():
+    """Limpa a sessão e redireciona para a página inicial."""
+    session.clear()
+    return redirect(url_for('index'))
 
-    # Calcula a margem usada
-    symbol_trades['margin_used'] = symbol_trades['entry_cost'] / leverage
-
-    symbol_trades['duration'] = symbol_trades['exit_time'] - symbol_trades['entry_time']
-    symbol_trades['duration'] = symbol_trades['duration'].apply(lambda x: str(x).split('.')[0])
-    
-    symbol_trades.rename(columns={'roi_%': 'roi'}, inplace=True)
-    trades_list = symbol_trades.to_dict('records')
-
-    return render_template('trades_detail.html', trades=trades_list, symbol=symbol)
-
+# --- EXECUÇÃO ---
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)
