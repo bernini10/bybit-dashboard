@@ -3,7 +3,7 @@
         <strong>Resultados para a Conta:</strong> {{ form_data.account_name }} | <strong>Período:</strong> {{ form_data.start_date }} a {{ form_data.end_date }}
     </div>
     <div class="header-actions">
-        <a href="/logout">Sair / Nova Análise</a>
+        <a href="{{ url_for('logout') }}">Sair / Nova Análise</a>
     </div>
 </div>
 
@@ -16,9 +16,15 @@
 
 <div class="kpi-container">
     <div class="kpi-card">
-        <h3>PnL Líquido Total</h3>
+        <h3>PnL de Trades (USDT)</h3>
         <div class="kpi-value {{ 'positive' if kpis.total_pnl > 0 else 'negative' }}">
-            {{ "%.2f"|format(kpis.total_pnl) }} USDT
+            {{ "%.2f"|format(kpis.total_pnl) }}
+        </div>
+    </div>
+    <div class="kpi-card">
+        <h3>Custo Total (Margem)</h3>
+        <div class="kpi-value">
+            {{ "%.2f"|format(kpis.total_margin_cost) }} USDT
         </div>
     </div>
     <div class="kpi-card">
@@ -28,9 +34,16 @@
         </div>
     </div>
     <div class="kpi-card">
-        <h3>ROI Médio Total</h3>
+        <h3>ROI Agregado Total</h3>
         <div class="kpi-value {{ 'positive' if kpis.avg_roi > 0 else 'negative' }}">
             {{ "%.2f"|format(kpis.avg_roi) }}%
+        </div>
+    </div>
+    <!-- NOVO CARD ADICIONADO ABAIXO -->
+    <div class="kpi-card">
+        <h3>Total de Trades</h3>
+        <div class="kpi-value">
+            {{ kpis.total_trades }}
         </div>
     </div>
 </div>
@@ -43,12 +56,12 @@
 
 <div id="winners-tab" class="tab-content" style="display: block;">
     <h3>🏆 Ranking de Ganhadores</h3>
-    <table class="results-table">
+    <table id="winners-table" class="results-table">
         <thead>
             <tr>
                 <th>Par</th>
                 <th>PnL Total (USDT)</th>
-                <th>ROI Total (%)</th>
+                <th>ROI Agregado (%)</th>
                 <th>Taxa de Acerto (%)</th>
                 <th>Nº de Trades</th>
                 <th>Ações</th>
@@ -59,7 +72,7 @@
             <tr>
                 <td><a href="{{ url_for('trade_details', symbol=row.symbol) }}" target="_blank">{{ row.symbol }}</a></td>
                 <td class="positive">+{{ "%.2f"|format(row.total_pnl_net) }}</td>
-                <td class="{{ 'positive' if row.average_roi > 0 else 'negative' }}">{{ "%.2f"|format(row.average_roi) }}</td>
+                <td class="{{ 'positive' if row.roi_agregado > 0 else 'negative' }}">{{ "%.2f"|format(row.roi_agregado) }}</td>
                 <td>{{ "%.2f"|format(row.win_rate) }}</td>
                 <td>{{ row.trade_count }}</td>
                 <td>
@@ -79,12 +92,12 @@
 
 <div id="losers-tab" class="tab-content">
     <h3>💔 Ranking de Perdedores</h3>
-    <table class="results-table">
+    <table id="losers-table" class="results-table">
         <thead>
             <tr>
                 <th>Par</th>
                 <th>PnL Total (USDT)</th>
-                <th>ROI Total (%)</th>
+                <th>ROI Agregado (%)</th>
                 <th>Taxa de Acerto (%)</th>
                 <th>Nº de Trades</th>
                 <th>Ações</th>
@@ -95,7 +108,7 @@
             <tr>
                 <td><a href="{{ url_for('trade_details', symbol=row.symbol) }}" target="_blank">{{ row.symbol }}</a></td>
                 <td class="negative">{{ "%.2f"|format(row.total_pnl_net) }}</td>
-                <td class="{{ 'positive' if row.average_roi > 0 else 'negative' }}">{{ "%.2f"|format(row.average_roi) }}</td>
+                <td class="{{ 'positive' if row.roi_agregado > 0 else 'negative' }}">{{ "%.2f"|format(row.roi_agregado) }}</td>
                 <td>{{ "%.2f"|format(row.win_rate) }}</td>
                 <td>{{ row.trade_count }}</td>
                 <td>
@@ -115,12 +128,12 @@
 
 <div id="exit-type-tab" class="tab-content">
     <h3>📊 Resumo por Tipo de Saída</h3>
-    <table class="results-table">
+    <table id="exit-type-table" class="results-table">
         <thead>
             <tr>
                 <th>Tipo de Saída</th>
                 <th>PnL Total (USDT)</th>
-                <th>ROI Médio (%)</th>
+                <th>ROI Agregado (%)</th>
                 <th>Taxa de Acerto (%)</th>
                 <th>Nº de Saídas</th>
             </tr>
@@ -130,7 +143,7 @@
             <tr>
                 <td>{{ row.exit_type }}</td>
                 <td class="{{ 'positive' if row.total_pnl_net > 0 else 'negative' }}">{{ "%.2f"|format(row.total_pnl_net) }}</td>
-                <td class="{{ 'positive' if row.average_roi > 0 else 'negative' }}">{{ "%.2f"|format(row.average_roi) }}</td>
+                <td class="{{ 'positive' if row.roi_agregado > 0 else 'negative' }}">{{ "%.2f"|format(row.roi_agregado) }}</td>
                 <td>{{ "%.2f"|format(row.win_rate) }}</td>
                 <td>{{ row.exit_count }}</td>
             </tr>
