@@ -97,6 +97,40 @@ def ban_symbol(symbol):
         session['blacklist'] = blacklist
     return jsonify({'status': 'success', 'message': f'{symbol} adicionado à blacklist.'})
 
+@app.route('/ban_multiple', methods=['POST'])
+def ban_multiple():
+    """Nova rota para banir múltiplos pares de uma vez"""
+    try:
+        data = request.get_json()
+        symbols = data.get('symbols', [])
+        
+        if not symbols:
+            return jsonify({'status': 'error', 'message': 'Nenhum par foi selecionado.'})
+        
+        blacklist = session.get('blacklist', [])
+        new_symbols = []
+        
+        # Adicionar apenas símbolos que não estão na blacklist
+        for symbol in symbols:
+            if symbol not in blacklist:
+                blacklist.append(symbol)
+                new_symbols.append(symbol)
+        
+        session['blacklist'] = blacklist
+        
+        if new_symbols:
+            if len(new_symbols) == 1:
+                message = f'{new_symbols[0]} adicionado à blacklist.'
+            else:
+                message = f'{len(new_symbols)} pares adicionados à blacklist: {", ".join(new_symbols)}'
+        else:
+            message = 'Todos os pares selecionados já estavam na blacklist.'
+        
+        return jsonify({'status': 'success', 'message': message})
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Erro ao processar solicitação: {str(e)}'})
+
 @app.route('/unban/<symbol>', methods=['POST'])
 def unban_symbol(symbol):
     blacklist = session.get('blacklist', [])
@@ -104,6 +138,40 @@ def unban_symbol(symbol):
         blacklist.remove(symbol)
         session['blacklist'] = blacklist
     return jsonify({'status': 'success', 'message': f'{symbol} removido da blacklist.'})
+
+@app.route('/unban_all', methods=['POST'])
+def unban_all():
+    """Nova rota para permitir múltiplos pares de uma vez"""
+    try:
+        data = request.get_json()
+        symbols = data.get('symbols', [])
+        
+        if not symbols:
+            return jsonify({'status': 'error', 'message': 'Nenhum par foi selecionado.'})
+        
+        blacklist = session.get('blacklist', [])
+        removed_symbols = []
+        
+        # Remover apenas símbolos que estão na blacklist
+        for symbol in symbols:
+            if symbol in blacklist:
+                blacklist.remove(symbol)
+                removed_symbols.append(symbol)
+        
+        session['blacklist'] = blacklist
+        
+        if removed_symbols:
+            if len(removed_symbols) == 1:
+                message = f'{removed_symbols[0]} removido da blacklist.'
+            else:
+                message = f'{len(removed_symbols)} pares removidos da blacklist: {", ".join(removed_symbols)}'
+        else:
+            message = 'Nenhum dos pares selecionados estava na blacklist.'
+        
+        return jsonify({'status': 'success', 'message': message})
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Erro ao processar solicitação: {str(e)}'})
 
 @app.route('/trades/<symbol>')
 def trade_details(symbol):
