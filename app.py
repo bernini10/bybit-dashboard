@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, session, redirect, url_for, jsonify
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_session import Session
 import os
 import shutil
@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 # Meus módulos
-from bybit_client import fetch_all_trades
+from bybit_client import fetch_all_trades, get_account_balance, get_account_transactions
 from analysis import process_trades_data
 
 # --- CONFIGURAÇÃO INICIAL ---
@@ -32,6 +32,7 @@ def analyze():
     session['form_data'] = form_data
     
     try:
+        # Buscar trades
         raw_df = fetch_all_trades(
             form_data['api_key'], 
             form_data['api_secret'],
@@ -42,7 +43,31 @@ def analyze():
         if raw_df.empty:
             return jsonify({'status': 'error', 'message': 'Nenhum trade encontrado no período especificado.'})
 
-        analysis_results = process_trades_data(raw_df, float(form_data.get('leverage', 10)))
+        # Buscar saldo da conta
+        try:
+            account_balance = get_account_balance(form_data['api_key'], form_data['api_secret'])
+        except Exception as e:
+            print(f"Aviso: Não foi possível buscar saldo da conta: {e}")
+            account_balance = None
+
+        # Buscar movimentações
+        try:
+            transactions_df = get_account_transactions(
+                form_data['api_key'], 
+                form_data['api_secret'],
+                form_data['start_date'], 
+                form_data['end_date']
+            )
+        except Exception as e:
+            print(f"Aviso: Não foi possível buscar movimentações: {e}")
+            transactions_df = None
+
+        analysis_results = process_trades_data(
+            raw_df, 
+            float(form_data.get('leverage', 10)),
+            account_balance,
+            transactions_df
+        )
         
         session['analysis_results'] = analysis_results
         session['analysis_done'] = True
@@ -83,10 +108,13 @@ def recalculate():
 def restore():
     if not session.get('analysis_done'):
         return jsonify({'status': 'error', 'message': 'Nenhuma análise encontrada na sessão.'})
+
+    original_results = session['analysis_results']
     session['is_simulation'] = False
+
     return jsonify({
         'status': 'success',
-        'template': render_template('partials/results.html', **session['analysis_results'], form_data=session['form_data'], blacklist=session.get('blacklist', []), is_simulation=False)
+        'template': render_template('partials/results.html', **original_results, form_data=session['form_data'], blacklist=session.get('blacklist', []), is_simulation=False)
     })
 
 @app.route('/ban/<symbol>', methods=['POST'])
@@ -95,22 +123,32 @@ def ban_symbol(symbol):
     if symbol not in blacklist:
         blacklist.append(symbol)
         session['blacklist'] = blacklist
-    return jsonify({'status': 'success', 'message': f'{symbol} adicionado à blacklist.'})
+        return jsonify({'status': 'success', 'message': f'{symbol} adicionado à blacklist.'})
+    else:
+        return jsonify({'status': 'info', 'message': f'{symbol} já está na blacklist.'})
+
+@app.route('/unban/<symbol>', methods=['POST'])
+def unban_symbol(symbol):
+    blacklist = session.get('blacklist', [])
+    if symbol in blacklist:
+        blacklist.remove(symbol)
+        session['blacklist'] = blacklist
+        return jsonify({'status': 'success', 'message': f'{symbol} removido da blacklist.'})
+    else:
+        return jsonify({'status': 'info', 'message': f'{symbol} não está na blacklist.'})
 
 @app.route('/ban_multiple', methods=['POST'])
 def ban_multiple():
-    """Nova rota para banir múltiplos pares de uma vez"""
     try:
         data = request.get_json()
         symbols = data.get('symbols', [])
         
         if not symbols:
-            return jsonify({'status': 'error', 'message': 'Nenhum par foi selecionado.'})
+            return jsonify({'status': 'error', 'message': 'Nenhum par selecionado.'})
         
         blacklist = session.get('blacklist', [])
         new_symbols = []
         
-        # Adicionar apenas símbolos que não estão na blacklist
         for symbol in symbols:
             if symbol not in blacklist:
                 blacklist.append(symbol)
@@ -131,23 +169,14 @@ def ban_multiple():
     except Exception as e:
         return jsonify({'status': 'error', 'message': f'Erro ao processar solicitação: {str(e)}'})
 
-@app.route('/unban/<symbol>', methods=['POST'])
-def unban_symbol(symbol):
-    blacklist = session.get('blacklist', [])
-    if symbol in blacklist:
-        blacklist.remove(symbol)
-        session['blacklist'] = blacklist
-    return jsonify({'status': 'success', 'message': f'{symbol} removido da blacklist.'})
-
 @app.route('/unban_all', methods=['POST'])
 def unban_all():
-    """Nova rota para permitir múltiplos pares de uma vez"""
     try:
         data = request.get_json()
         symbols = data.get('symbols', [])
         
         if not symbols:
-            return jsonify({'status': 'error', 'message': 'Nenhum par foi selecionado.'})
+            return jsonify({'status': 'error', 'message': 'Nenhum par fornecido.'})
         
         blacklist = session.get('blacklist', [])
         removed_symbols = []

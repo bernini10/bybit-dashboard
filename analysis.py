@@ -18,8 +18,11 @@ def get_exit_type(row):
     return 'Parcial'
 
 
-def process_trades_data(raw_df, leverage):
+def process_trades_data(raw_df, leverage, account_balance=None, transactions_df=None):
     df = raw_df.copy()
+    
+    # Corrigir conversão de timestamp
+    df['execTime'] = pd.to_numeric(df['execTime'], errors='coerce')
     df['execTime'] = pd.to_datetime(df['execTime'], unit='ms')
     df = df.sort_values(by='execTime').reset_index(drop=True)
     
@@ -98,7 +101,7 @@ def process_trades_data(raw_df, leverage):
         'total_pnl': pnl_de_trades, 
         'win_rate': win_rate,
         'total_margin_cost': total_margin_cost,
-        'total_trades': total_trades  # <-- ADICIONADO AQUI
+        'total_trades': total_trades
     }
 
     if not analysis_df.empty:
@@ -129,11 +132,51 @@ def process_trades_data(raw_df, leverage):
         losers_summary = pd.DataFrame()
         exit_type_summary = pd.DataFrame()
 
+    # Processar informações da conta
+    account_info = {}
+    if account_balance:
+        account_info = {
+            'balances': account_balance,
+            'total_balance_usdt': account_balance.get('USDT', {}).get('wallet_balance', 0),
+            'total_unrealized_pnl': sum([
+                balance.get('unrealized_pnl', 0) for coin, balance in account_balance.items()
+            ])
+        }
+    
+    # Processar transações com transferências
+    transactions_summary = {}
+    if transactions_df is not None and not transactions_df.empty:
+        # Separar por tipo
+        deposits = transactions_df[transactions_df['type'] == 'Depósito']
+        withdrawals = transactions_df[transactions_df['type'] == 'Retirada']
+        transfers_in = transactions_df[transactions_df['type'] == 'Transferência Entrada']
+        transfers_out = transactions_df[transactions_df['type'] == 'Transferência Saída']
+        
+        transactions_summary = {
+            'total_deposits': deposits['amount'].sum() if not deposits.empty else 0,
+            'total_withdrawals': withdrawals['amount'].sum() if not withdrawals.empty else 0,
+            'total_transfers_in': transfers_in['amount'].sum() if not transfers_in.empty else 0,
+            'total_transfers_out': transfers_out['amount'].sum() if not transfers_out.empty else 0,
+            'deposits_count': len(deposits),
+            'withdrawals_count': len(withdrawals),
+            'transfers_in_count': len(transfers_in),
+            'transfers_out_count': len(transfers_out),
+            'net_flow': (
+                (deposits['amount'].sum() if not deposits.empty else 0) +
+                (transfers_in['amount'].sum() if not transfers_in.empty else 0) -
+                (withdrawals['amount'].sum() if not withdrawals.empty else 0) -
+                (transfers_out['amount'].sum() if not transfers_out.empty else 0)
+            ),
+            'transactions_detail': transactions_df.to_dict('records') if not transactions_df.empty else []
+        }
+
     return {
         'kpis': kpis,
         'winners_summary': winners_summary.to_dict('records') if not winners_summary.empty else [],
         'losers_summary': losers_summary.to_dict('records') if not losers_summary.empty else [],
         'exit_type_summary': exit_type_summary.to_dict('records') if not exit_type_summary.empty else [],
         'all_trades': analysis_df.to_dict('records'),
-        'raw_df': raw_df
+        'raw_df': raw_df,
+        'account_info': account_info,
+        'transactions_summary': transactions_summary
     }

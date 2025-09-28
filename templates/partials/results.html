@@ -14,38 +14,79 @@
 </div>
 {% endif %}
 
-<div class="kpi-container">
-    <div class="kpi-card">
-        <h3>PnL de Trades (USDT)</h3>
-        <div class="kpi-value {{ 'positive' if kpis.total_pnl > 0 else 'negative' }}">
+<!-- Primeira linha de KPIs - Trading -->
+<div class="kpi-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px;">
+    <div class="kpi-card" style="padding: 15px;">
+        <h3 style="font-size: 0.9em; margin-bottom: 8px;">PnL de Trades (USDT)</h3>
+        <div class="kpi-value {{ 'positive' if kpis.total_pnl > 0 else 'negative' }}" style="font-size: 1.8em;">
             {{ "%.2f"|format(kpis.total_pnl) }}
         </div>
     </div>
-    <div class="kpi-card">
-        <h3>Custo Total (Margem)</h3>
-        <div class="kpi-value">
+    <div class="kpi-card" style="padding: 15px;">
+        <h3 style="font-size: 0.9em; margin-bottom: 8px;">Custo Total (Margem)</h3>
+        <div class="kpi-value" style="font-size: 1.8em;">
             {{ "%.2f"|format(kpis.total_margin_cost) }} USDT
         </div>
     </div>
-    <div class="kpi-card">
-        <h3>Taxa de Acerto</h3>
-        <div class="kpi-value">
+    <div class="kpi-card" style="padding: 15px;">
+        <h3 style="font-size: 0.9em; margin-bottom: 8px;">Taxa de Acerto</h3>
+        <div class="kpi-value" style="font-size: 1.8em;">
             {{ "%.2f"|format(kpis.win_rate) }}%
         </div>
     </div>
-    <div class="kpi-card">
-        <h3>ROI Agregado Total</h3>
-        <div class="kpi-value {{ 'positive' if kpis.avg_roi > 0 else 'negative' }}">
+    <div class="kpi-card" style="padding: 15px;">
+        <h3 style="font-size: 0.9em; margin-bottom: 8px;">ROI Agregado Total</h3>
+        <div class="kpi-value {{ 'positive' if kpis.avg_roi > 0 else 'negative' }}" style="font-size: 1.8em;">
             {{ "%.2f"|format(kpis.avg_roi) }}%
         </div>
     </div>
-    <!-- NOVO CARD ADICIONADO ABAIXO -->
-    <div class="kpi-card">
-        <h3>Total de Trades</h3>
-        <div class="kpi-value">
+    <div class="kpi-card" style="padding: 15px;">
+        <h3 style="font-size: 0.9em; margin-bottom: 8px;">Total de Trades</h3>
+        <div class="kpi-value" style="font-size: 1.8em;">
             {{ kpis.total_trades }}
         </div>
     </div>
+    {% if account_info and account_info.total_balance_usdt %}
+    <div class="kpi-card" style="padding: 15px;">
+        <h3 style="font-size: 0.9em; margin-bottom: 8px;">Saldo Atual (USDT)</h3>
+        <div class="kpi-value" style="font-size: 1.8em;">
+            {{ "%.2f"|format(account_info.total_balance_usdt) }}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Segunda linha de KPIs - Apenas Transferências -->
+<div class="kpi-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px;">
+    <div class="kpi-card" style="padding: 12px;">
+        <h3 style="font-size: 0.8em; margin-bottom: 6px;">Transferências Entrada</h3>
+        <div class="kpi-value positive" style="font-size: 1.4em;">
+            +{{ "%.2f"|format(transactions_summary.total_transfers_in if transactions_summary else 0) }}
+        </div>
+        <small style="color: var(--text-muted); font-size: 0.75em;">{{ transactions_summary.transfers_in_count if transactions_summary else 0 }} transações</small>
+    </div>
+    <div class="kpi-card" style="padding: 12px;">
+        <h3 style="font-size: 0.8em; margin-bottom: 6px;">Transferências Saída</h3>
+        <div class="kpi-value negative" style="font-size: 1.4em;">
+            -{{ "%.2f"|format(transactions_summary.total_transfers_out if transactions_summary else 0) }}
+        </div>
+        <small style="color: var(--text-muted); font-size: 0.75em;">{{ transactions_summary.transfers_out_count if transactions_summary else 0 }} transações</small>
+    </div>
+    <div class="kpi-card" style="padding: 12px;">
+        <h3 style="font-size: 0.8em; margin-bottom: 6px;">Fluxo Líquido Total</h3>
+        <div class="kpi-value {{ 'positive' if transactions_summary and transactions_summary.net_flow > 0 else 'negative' if transactions_summary and transactions_summary.net_flow < 0 else '' }}" style="font-size: 1.4em;">
+            {{ "%.2f"|format(transactions_summary.net_flow if transactions_summary else 0) }}
+        </div>
+        <small style="color: var(--text-muted); font-size: 0.75em;">Entradas - Saídas</small>
+    </div>
+    {% if account_info and account_info.total_unrealized_pnl %}
+    <div class="kpi-card" style="padding: 12px;">
+        <h3 style="font-size: 0.8em; margin-bottom: 6px;">PnL Não Realizado</h3>
+        <div class="kpi-value {{ 'positive' if account_info.total_unrealized_pnl > 0 else 'negative' }}" style="font-size: 1.4em;">
+            {{ "%.2f"|format(account_info.total_unrealized_pnl) }}
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <!-- Controles de Seleção em Massa -->
@@ -75,6 +116,9 @@
     <button class="tab-link active" data-tab="winners-tab">🏆 Ganhadores</button>
     <button class="tab-link" data-tab="losers-tab">💔 Perdedores</button>
     <button class="tab-link" data-tab="exit-type-tab">📊 Por Saída</button>
+    {% if transactions_summary and transactions_summary.transactions_detail %}
+    <button class="tab-link" data-tab="transactions-tab">💰 Movimentações</button>
+    {% endif %}
 </div>
 
 <div id="winners-tab" class="tab-content" style="display: block;">
@@ -186,6 +230,50 @@
         </tbody>
     </table>
 </div>
+
+{% if transactions_summary and transactions_summary.transactions_detail %}
+<div id="transactions-tab" class="tab-content">
+    <h3>💰 Movimentações no Período</h3>
+    <table id="transactions-table" class="results-table">
+        <thead>
+            <tr>
+                <th>Data/Hora</th>
+                <th>Tipo</th>
+                <th>Moeda</th>
+                <th>Valor</th>
+                <th>Status</th>
+                <th>Detalhes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for transaction in transactions_summary.transactions_detail %}
+            <tr>
+                <td>{{ transaction.timestamp if transaction.timestamp else 'N/A' }}</td>
+                <td>
+                    <span class="{{ 'positive' if 'Entrada' in transaction.type or transaction.type == 'Depósito' else 'negative' }}">
+                        {{ transaction.type }}
+                    </span>
+                </td>
+                <td>{{ transaction.coin }}</td>
+                <td class="{{ 'positive' if 'Entrada' in transaction.type or transaction.type == 'Depósito' else 'negative' }}">
+                    {{ "%.8f"|format(transaction.amount) }}
+                </td>
+                <td>{{ transaction.status }}</td>
+                <td style="font-family: monospace; font-size: 0.8em;">
+                    {% if transaction.from_account and transaction.to_account %}
+                        {{ transaction.from_account }} → {{ transaction.to_account }}
+                    {% elif transaction.tx_id %}
+                        {{ transaction.tx_id[:10] + '...' if transaction.tx_id|length > 10 else transaction.tx_id }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
 
 <script>
 // Funcionalidade de Seleção em Massa
