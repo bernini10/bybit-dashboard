@@ -5,9 +5,9 @@ import shutil
 from datetime import datetime, timedelta
 import pandas as pd
 
-# Meus módulos
-from bybit_client import fetch_all_trades, get_account_balance, get_account_transactions
-from analysis import process_trades_data
+# Meus módulos - APENAS MUDANÇA: usar API de posições fechadas
+from bybit_client import fetch_closed_positions, fetch_account_balance, fetch_account_transactions
+from analysis import process_closed_positions_data
 
 # --- CONFIGURAÇÃO INICIAL ---
 app = Flask(__name__)
@@ -32,8 +32,8 @@ def analyze():
     session['form_data'] = form_data
     
     try:
-        # Buscar trades
-        raw_df = fetch_all_trades(
+        # APENAS MUDANÇA: usar fetch_closed_positions em vez de fetch_all_trades
+        raw_df = fetch_closed_positions(
             form_data['api_key'], 
             form_data['api_secret'],
             form_data['start_date'], 
@@ -41,18 +41,18 @@ def analyze():
         )
         
         if raw_df.empty:
-            return jsonify({'status': 'error', 'message': 'Nenhum trade encontrado no período especificado.'})
+            return jsonify({'status': 'error', 'message': 'Nenhuma posição fechada encontrada no período especificado.'})
 
         # Buscar saldo da conta
         try:
-            account_balance = get_account_balance(form_data['api_key'], form_data['api_secret'])
+            account_balance = fetch_account_balance(form_data['api_key'], form_data['api_secret'])
         except Exception as e:
             print(f"Aviso: Não foi possível buscar saldo da conta: {e}")
             account_balance = None
 
         # Buscar movimentações
         try:
-            transactions_df = get_account_transactions(
+            transactions_df = fetch_account_transactions(
                 form_data['api_key'], 
                 form_data['api_secret'],
                 form_data['start_date'], 
@@ -62,7 +62,8 @@ def analyze():
             print(f"Aviso: Não foi possível buscar movimentações: {e}")
             transactions_df = None
 
-        analysis_results = process_trades_data(
+        # APENAS MUDANÇA: usar process_closed_positions_data em vez de process_trades_data
+        analysis_results = process_closed_positions_data(
             raw_df, 
             float(form_data.get('leverage', 10)),
             account_balance,
@@ -95,7 +96,13 @@ def recalculate():
     if filtered_df.empty:
         return jsonify({'status': 'error', 'message': 'Nenhum trade restante após aplicar a blacklist.'})
 
-    recalculated_results = process_trades_data(filtered_df, float(session['form_data'].get('leverage', 10)))
+    # APENAS MUDANÇA: usar process_closed_positions_data
+    recalculated_results = process_closed_positions_data(
+        filtered_df, 
+        float(session['form_data'].get('leverage', 10)),
+        original_results.get('account_info'),
+        original_results.get('transactions_summary')
+    )
     
     session['is_simulation'] = True
 

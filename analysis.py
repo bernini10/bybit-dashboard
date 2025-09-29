@@ -18,6 +18,184 @@ def get_exit_type(row):
     return 'Parcial'
 
 
+def process_closed_positions_data(closed_positions_df, leverage, account_balance=None, transactions_df=None):
+    """
+    Processa dados da API de posições fechadas da Bybit.
+    Esta função usa dados já processados pela Bybit para maior precisão.
+    """
+    if closed_positions_df.empty:
+        return {
+            'kpis': {
+                'total_pnl': 0,
+                'win_rate': 0,
+                'total_margin_cost': 0,
+                'total_trades': 0,
+                'avg_roi': 0
+            },
+            'winners_summary': [],
+            'losers_summary': [],
+            'exit_type_summary': [],
+            'all_trades': [],
+            'raw_df': closed_positions_df,
+            'account_info': {},
+            'transactions_summary': {}
+        }
+    
+    df = closed_positions_df.copy()
+    
+    # Converter timestamps para datetime
+    df['createdTime'] = pd.to_numeric(df['createdTime'], errors='coerce')
+    df['updatedTime'] = pd.to_numeric(df['updatedTime'], errors='coerce')
+    df['createdTime'] = pd.to_datetime(df['createdTime'], unit='ms')
+    df['updatedTime'] = pd.to_datetime(df['updatedTime'], unit='ms')
+    
+    # Converter campos numéricos
+    numeric_cols = ['closedPnl', 'fillFee', 'qty', 'avgEntryPrice', 'avgExitPrice']
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Remover linhas com dados inválidos
+    df = df.dropna(subset=['closedPnl', 'qty', 'avgEntryPrice'])
+    
+    # Calcular métricas adicionais
+    trades = []
+    for index, row in df.iterrows():
+        symbol = row.get('symbol', '')
+        side = row.get('side', '')
+        qty = abs(float(row.get('qty', 0)))
+        avg_entry_price = float(row.get('avgEntryPrice', 0))
+        avg_exit_price = float(row.get('avgExitPrice', 0))
+        closed_pnl = float(row.get('closedPnl', 0))
+        fill_fee = float(row.get('fillFee', 0))
+        created_time = row.get('createdTime')
+        updated_time = row.get('updatedTime')
+        
+        # Calcular valor nocional e margem
+        valor_nocional = qty * avg_entry_price
+        margem = valor_nocional / leverage if leverage > 0 else valor_nocional
+        
+        # PnL líquido (já inclui taxas na API da Bybit)
+        pnl_net = closed_pnl
+        
+        # ROI baseado na margem utilizada
+        roi = (pnl_net / margem) * 100 if margem > 0 else 0
+        
+        # Duração da posição
+        duration = updated_time - created_time if created_time and updated_time else pd.Timedelta(0)
+        
+        # Determinar tipo de saída (simplificado, pois a API não fornece detalhes)
+        exit_type = 'Manual'  # Pode ser expandido com lógica adicional se necessário
+        
+        trades.append({
+            'symbol': symbol,
+            'position_side': 'Long' if side == 'Buy' else 'Short',
+            'entry_time': created_time,
+            'exit_time': updated_time,
+            'duration': str(duration).replace('0 days ', '') if duration else '0:00:00',
+            'quantity': qty,
+            'avg_entry_price': avg_entry_price,
+            'exit_price': avg_exit_price,
+            'valor_nocional': valor_nocional,
+            'margem': margem,
+            'pnl_net': pnl_net,
+            'roi': roi,
+            'result': 'Lucro' if pnl_net > 0 else 'Perda',
+            'exit_type': exit_type,
+            'fill_fee': fill_fee
+        })
+    
+    analysis_df = pd.DataFrame(trades)
+    
+    # Calcular KPIs
+    total_pnl = analysis_df['pnl_net'].sum()
+    total_trades = len(analysis_df)
+    winning_trades = analysis_df[analysis_df['pnl_net'] > 0]
+    win_rate = (len(winning_trades) / total_trades) * 100 if total_trades > 0 else 0
+    total_margin_cost = analysis_df['margem'].sum()
+    avg_roi = (total_pnl / total_margin_cost) * 100 if total_margin_cost > 0 else 0
+    
+    kpis = {
+        'total_pnl': total_pnl,
+        'win_rate': win_rate,
+        'total_margin_cost': total_margin_cost,
+        'total_trades': total_trades,
+        'avg_roi': avg_roi
+    }
+    
+    # Resumo por símbolo
+    if not analysis_df.empty:
+        symbol_summary = analysis_df.groupby('symbol').agg(
+            total_pnl_net=('pnl_net', 'sum'),
+            total_margin=('margem', 'sum'),
+            win_rate=('result', lambda x: (x == 'Lucro').sum() / x.count() * 100),
+            trade_count=('symbol', 'count')
+        ).reset_index()
+        symbol_summary['roi_agregado'] = (symbol_summary['total_pnl_net'] / symbol_summary['total_margin']) * 100
+        
+        winners_summary = symbol_summary[symbol_summary['total_pnl_net'] >= 0].sort_values(by='total_pnl_net', ascending=False)
+        losers_summary = symbol_summary[symbol_summary['total_pnl_net'] < 0].sort_values(by='total_pnl_net', ascending=True)
+        
+        # Resumo por tipo de saída (simplificado para posições fechadas)
+        exit_type_summary = analysis_df.groupby('exit_type').agg(
+            total_pnl_net=('pnl_net', 'sum'),
+            total_margin=('margem', 'sum'),
+            win_rate=('result', lambda x: (x == 'Lucro').sum() / x.count() * 100),
+            exit_count=('exit_type', 'count')
+        ).reset_index()
+        exit_type_summary['roi_agregado'] = (exit_type_summary['total_pnl_net'] / exit_type_summary['total_margin']) * 100
+        exit_type_summary = exit_type_summary.sort_values(by='total_pnl_net', ascending=False)
+    else:
+        winners_summary = pd.DataFrame()
+        losers_summary = pd.DataFrame()
+        exit_type_summary = pd.DataFrame()
+
+    # Processar informações da conta
+    account_info = {}
+    if account_balance:
+        account_info = {
+            'balances': account_balance,
+            'total_balance_usdt': account_balance.get('USDT', {}).get('wallet_balance', 0),
+            'total_unrealized_pnl': sum([
+                balance.get('unrealized_pnl', 0) for coin, balance in account_balance.items()
+            ])
+        }
+    
+    # Processar transações (sem transferências internas por limitação da API)
+    transactions_summary = {}
+    if transactions_df is not None and not transactions_df.empty:
+        # Separar por tipo
+        deposits = transactions_df[transactions_df['type'] == 'Depósito']
+        withdrawals = transactions_df[transactions_df['type'] == 'Retirada']
+        
+        transactions_summary = {
+            'total_deposits': deposits['amount'].sum() if not deposits.empty else 0,
+            'total_withdrawals': withdrawals['amount'].sum() if not withdrawals.empty else 0,
+            'total_transfers_in': 0,  # Não disponível na API pública
+            'total_transfers_out': 0,  # Não disponível na API pública
+            'deposits_count': len(deposits),
+            'withdrawals_count': len(withdrawals),
+            'transfers_in_count': 0,
+            'transfers_out_count': 0,
+            'net_flow': (
+                (deposits['amount'].sum() if not deposits.empty else 0) -
+                (withdrawals['amount'].sum() if not withdrawals.empty else 0)
+            ),
+            'transactions_detail': transactions_df.to_dict('records') if not transactions_df.empty else []
+        }
+    
+    return {
+        'kpis': kpis,
+        'winners_summary': winners_summary.to_dict('records') if not winners_summary.empty else [],
+        'losers_summary': losers_summary.to_dict('records') if not losers_summary.empty else [],
+        'exit_type_summary': exit_type_summary.to_dict('records') if not exit_type_summary.empty else [],
+        'all_trades': analysis_df.to_dict('records'),
+        'raw_df': df,
+        'account_info': account_info,
+        'transactions_summary': transactions_summary
+    }
+
+
 def process_trades_data(raw_df, leverage, account_balance=None, transactions_df=None):
     df = raw_df.copy()
     
@@ -143,29 +321,25 @@ def process_trades_data(raw_df, leverage, account_balance=None, transactions_df=
             ])
         }
     
-    # Processar transações com transferências
+    # Processar transações (sem transferências internas por limitação da API)
     transactions_summary = {}
     if transactions_df is not None and not transactions_df.empty:
         # Separar por tipo
         deposits = transactions_df[transactions_df['type'] == 'Depósito']
         withdrawals = transactions_df[transactions_df['type'] == 'Retirada']
-        transfers_in = transactions_df[transactions_df['type'] == 'Transferência Entrada']
-        transfers_out = transactions_df[transactions_df['type'] == 'Transferência Saída']
         
         transactions_summary = {
             'total_deposits': deposits['amount'].sum() if not deposits.empty else 0,
             'total_withdrawals': withdrawals['amount'].sum() if not withdrawals.empty else 0,
-            'total_transfers_in': transfers_in['amount'].sum() if not transfers_in.empty else 0,
-            'total_transfers_out': transfers_out['amount'].sum() if not transfers_out.empty else 0,
+            'total_transfers_in': 0,  # Não disponível na API pública
+            'total_transfers_out': 0,  # Não disponível na API pública
             'deposits_count': len(deposits),
             'withdrawals_count': len(withdrawals),
-            'transfers_in_count': len(transfers_in),
-            'transfers_out_count': len(transfers_out),
+            'transfers_in_count': 0,
+            'transfers_out_count': 0,
             'net_flow': (
-                (deposits['amount'].sum() if not deposits.empty else 0) +
-                (transfers_in['amount'].sum() if not transfers_in.empty else 0) -
-                (withdrawals['amount'].sum() if not withdrawals.empty else 0) -
-                (transfers_out['amount'].sum() if not transfers_out.empty else 0)
+                (deposits['amount'].sum() if not deposits.empty else 0) -
+                (withdrawals['amount'].sum() if not withdrawals.empty else 0)
             ),
             'transactions_detail': transactions_df.to_dict('records') if not transactions_df.empty else []
         }
